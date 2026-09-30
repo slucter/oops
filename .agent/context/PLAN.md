@@ -4,6 +4,10 @@ Dibuat: 2026-09-30
 Status: disetujui 2026-09-30 (revisi 2026-09-30: registry server pindah dari
 YAML ke DB+form web; revisi 2026-09-30 #2: auto-discovery key dari `~/.ssh/`
 OS tempat app berjalan, hapus upload key lewat form)
+**MVP diterima pemilik projek 2026-09-30** — "versi awal ini sudah cukup
+secara konsep". Commit terakhir: `d9dd295`. Fitur lanjutan (notifikasi,
+histori resource jangka panjang, dll) jadi permintaan terpisah ke depan,
+bukan bagian tahap yang belum selesai.
 
 ## Masalah
 
