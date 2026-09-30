@@ -45,11 +45,22 @@ sendiri diproteksi login (lihat di bawah).
 ## Prasyarat di tiap server target
 
 User SSH yang dipakai butuh izin sudo tanpa password, dibatasi hanya untuk
-command yang dipakai dashboard ini (jangan beri full sudo). Tambahkan di
-server target lewat `visudo -f /etc/sudoers.d/sxops`:
+command yang dipakai dashboard ini (jangan beri full sudo). Ini berlaku di
+**server target itu sendiri** — untuk server yang diakses lewat jump host,
+setup ini dilakukan di server target, bukan di jump host-nya.
+
+Cari dulu path pasti `ss` di server itu (bisa beda-beda, mis. `/usr/bin/ss`
+atau `/usr/sbin/ss`):
+
+```bash
+which ss
+```
+
+Lalu tambahkan lewat `visudo -f /etc/sudoers.d/sxops`, isi dengan path yang
+sesuai hasil `which ss` di atas:
 
 ```
-<user> ALL=(root) NOPASSWD: /usr/sbin/ss
+<user> ALL=(root) NOPASSWD: /usr/bin/ss
 ```
 
 Kalau server itu juga punya Docker dan dicentang "Ada Docker" di form, pastikan
