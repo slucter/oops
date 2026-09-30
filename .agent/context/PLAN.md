@@ -2,10 +2,12 @@
 
 Dibuat: 2026-09-30
 Status: disetujui 2026-09-30
-Branch: `v2-websocket-agent` (dari commit `65388d6` di `master`)
+Branch kerja: `development` (dari `master`, yang berisi kode v2 ini)
+Repo: github.com/slucter/oops — branch `v1` + tag `v1.0` mengarsipkan versi
+SSH sebelumnya secara permanen.
 
 Versi sebelumnya (SSH pull + jump host shell-out) diterima dan diarsipkan
-permanen di branch `v1-ssh-jump-host` serta `.agent/context/JOURNAL.md`
+permanen di branch `v1` (tag `v1.0`) serta `.agent/context/JOURNAL.md`
 entri 2026-09-30. Versi ini adalah **rombakan arsitektur**, bukan lanjutan
 tahap — dimulai dari database kosong, model data baru.
 
@@ -147,81 +149,119 @@ Tidak termasuk (sengaja, revisi dari v1):
 ### Tahap A — Fondasi backend: schema baru, WebSocket server, token auth · menengah
 Tujuan: server bisa menerima koneksi WebSocket dengan token valid, terima
 payload metrik, simpan ke DB. Belum ada UI baru, belum ada script instalasi.
-- [ ] Reset DB: schema baru (`groups`, `clients`, `client_metrics`,
-      `status_history`, `users`), hapus tabel v1 sepenuhnya dari
-      `schema.sql`
-- [ ] Hapus `sshClient.js`, `sshKeyDiscovery.js`, `statusChecker.js` (versi
-      SSH), `scheduler/` (polling pull tidak relevan lagi), `serverStore.js`
-      → ganti `clientStore.js`
-- [ ] Modul `wsServer.js`: pasang `ws` di atas HTTP server Express yang
-      sama, validasi token saat `upgrade` request (tolak sebelum handshake
-      selesai kalau token invalid — jangan terima koneksi dulu baru cek)
-- [ ] Skema validasi payload (tipe + batas ukuran), tolak/log payload yang
-      tidak valid tanpa crash
-- [ ] Simpan payload ke `client_metrics`, update `clients.last_seen_at` +
-      `status`, catat `status_history` kalau status berubah
-- [ ] Timer/interval server-side: scan client yang `last_seen_at` lebih
-      lama dari ambang batas → tandai DOWN
-Selesai kalau: koneksi WebSocket manual (mis. pakai `wscat` atau script
-test) dengan token valid bisa kirim payload dan tersimpan benar di DB;
-token invalid ditolak sebelum handshake; client yang berhenti kirim payload
-otomatis jadi DOWN setelah ambang waktu terlewati.
+- [x] Reset DB: schema baru (`groups`, `clients`, `client_metrics`,
+      `client_command_results`, `status_history`, `users`), tabel v1
+      dihapus total dari `schema.sql`
+- [x] Hapus `sshClient.js`, `sshKeyDiscovery.js`, `statusChecker.js`,
+      `scheduler/`, `serverStore.js` → `clientStore.js` + `groupStore.js`
+- [x] `src/ws/server.js`: `ws` di atas HTTP server Express yang sama lewat
+      event `upgrade` manual (bukan `WebSocketServer({ server })` langsung)
+      supaya token bisa divalidasi SEBELUM `handleUpgrade` dipanggil —
+      token invalid dapat `401` + socket destroy, tidak pernah sampai jadi
+      koneksi WS
+- [x] `src/services/payloadValidator.js`: validasi tipe tiap field numerik
+      + panjang string, plus batas ukuran pesan 8KB dicek di level WS
+      sebelum JSON.parse dipanggil
+- [x] `src/services/clientDataService.js`: simpan ke `client_metrics`,
+      update `last_seen_at`+`status`, `status_history` dicatat hanya saat
+      status benar-benar berubah (bukan tiap payload)
+- [x] Timer `setInterval` 15 detik: `markStaleClientsDown()` scan client
+      `status='up'` dengan `last_seen_at` lebih lama dari
+      `CLIENT_STALE_SECONDS` → DOWN
+Selesai kalau: koneksi WebSocket manual dengan token valid bisa kirim
+payload dan tersimpan benar di DB; token invalid ditolak sebelum
+handshake; client yang berhenti kirim payload otomatis jadi DOWN setelah
+ambang waktu terlewati.
+**Status: selesai, di-commit `d18ca2a`. TERVALIDASI lewat WebSocket client
+nyata (bukan mock): token invalid → 401 sebelum upgrade; payload valid →
+tersimpan + persentase RAM/disk terhitung benar; payload tipe salah →
+ditolak dengan log jelas, koneksi TETAP hidup; payload 9KB → ditutup close
+code 1009; deteksi stale→DOWN terverifikasi berubah otomatis (test dengan
+`CLIENT_STALE_SECONDS=5`, terkonfirmasi UP→DOWN dalam ~20 detik).**
 
 ### Tahap B — Registry client & Master Group di web · kecil-menengah
 Tujuan: halaman "+ Tambah Client" generate token + tampilkan command
 instalasi; menu Master Group untuk kelola grup; assign client ke grup.
-- [ ] Route `/clients/new`: generate token, simpan row `clients` status
-      `pending`, render halaman berisi command instalasi siap-copy
-- [ ] Route `/groups`: CRUD grup (tambah/edit/hapus nama)
-- [ ] Route edit client: assign/ubah `group_id`, regenerate token (revoke
-      akses lama), hapus client
-- [ ] Update dashboard: kolom/tabel client (bukan server), grouping by
-      `group_id` (bukan tree `via` — model v1 sudah tidak relevan), hapus
-      tombol "+ Tambah Server" ganti "+ Tambah Client"
+- [x] Route `/clients/new`: generate token (24 byte random hex), simpan row
+      `clients` status `pending`, render halaman command instalasi siap-copy
+- [x] Route `/groups`: CRUD grup (tambah/edit/hapus nama, unique constraint)
+- [x] Route edit client: assign/ubah `group_id`, regenerate token (revoke
+      akses lama — token lama langsung berhenti divalidasi), hapus client
+- [x] Dashboard: tabel client per grup (`grouped[groupName]`, bukan tree
+      `via` — model v1 sudah tidak relevan), tombol "+ Tambah Client"
 Selesai kalau: bisa buat client baru dari browser, dapat command instalasi
-yang valid, assign ke grup lewat dropdown, dan dashboard menampilkan client
-per grup.
+yang valid, assign ke grup lewat dropdown, dan dashboard menampilkan
+client per grup.
+**Status: selesai, di-commit `d18ca2a`. TERVALIDASI: grup "Kantor" dibuat,
+client di-assign ke grup itu lewat form edit, dashboard menampilkan
+`<div class="group-label">Kantor</div>` dengan client itu di bawahnya.**
 
 ### Tahap C — Agent client & script instalasi · menengah-besar
 Tujuan: `curl <url> | bash` benar-benar menghasilkan proses yang connect ke
 server dan mengirim data, plus bisa merespons command on-demand.
-- [ ] Agent (`agent.js`, Node.js): connect WebSocket dengan token, kirim
-      payload metrik tiap N detik (RAM/disk/load/uptime/hostname),
-      reconnect otomatis dengan backoff kalau putus
-- [ ] Agent: dengarkan pesan `{"type":"command", ...}` dari server, jalankan
-      `docker ps -a` atau `ss -tulnp` (tanpa sudo — sama seperti v1) sesuai
-      `cmd`, balas `{"type":"command_result", ...}` dengan `id` yang sama
-      supaya server bisa cocokkan balasan ke permintaan mana
-- [ ] Endpoint `/install.sh`: generate script bash yang 1) validasi token
-      dari query string, 2) cek/install `node` kalau belum ada (deteksi
-      package manager: `apt`/`yum`/`apk`), 3) download `agent.js` ke
-      `~/.sxops-agent/`, 4) daftarkan sebagai `systemctl --user` service
-      dengan `Restart=always` + `loginctl enable-linger $USER`, 5) start
-      service
-- [ ] Uji idempotency: jalankan command instalasi 2x di server yang sama,
-      tidak boleh ada 2 proses agent duplikat (service systemd yang sama
-      di-restart, bukan didaftarkan dobel)
+- [x] `agent/agent.js` (Node.js): connect WebSocket dengan token, kirim
+      payload metrik tiap `SXOPS_INTERVAL_MS` (default 30 detik,
+      RAM/disk/load/uptime/hostname lewat `resourceParser.js` yang
+      dipindah dari `src/services/` v1 — dijalankan LOKAL via
+      `execSync`, bukan lewat SSH), reconnect otomatis dengan
+      exponential backoff (2 detik → maks 60 detik)
+- [x] Agent: dengarkan `{"type":"command", id, command}`, jalankan
+      `docker ps -a`/`ss -tulnp` tanpa sudo, balas
+      `{"type":"command_result", id, command, output, errorMessage}`
+- [x] `src/routes/install.js` endpoint `/install.sh`: validasi token
+      (400 + pesan jelas kalau invalid), deteksi package manager
+      (`apt-get`/`yum`/`apk`) untuk install `node` kalau belum ada,
+      download 3 file agent dari `/agent-files/*` (`express.static`),
+      `npm install --production`, daftar `systemd --user` service
+      `Restart=always` + `loginctl enable-linger`
 Selesai kalau: command instalasi dari halaman web, dijalankan di server
 nyata (KST Lab dulu, sebelum deploy publik), membuat client itu muncul
 UP di dashboard dengan data RAM/disk yang benar, bertahan lewat restart
 server (systemd user + lingering), dan merespons permintaan docker/port
 saat diminta dari web.
+**Status: kode selesai & di-commit `d18ca2a`. TERVALIDASI SEBAGIAN —
+protokol WebSocket (handshake, metrik, command-response) diuji end-to-end
+dengan WebSocket client yang meniru payload/perilaku agent persis
+(karena mesin dev ini Windows, `agent.js` sungguhan tidak bisa jalan
+penuh di sini — `free`/`df`/`uptime` tidak ada). BELUM diuji: agent asli
+di server Linux sungguhan, `/install.sh` dijalankan sungguhan (systemd
+user service, deteksi package manager, idempotency jalan 2x) — baru akan
+tervalidasi penuh di Tahap E saat deploy ke KST Lab.**
 
 ### Tahap D — Dashboard v2: grafik, detail client, docker & port on-demand · menengah
 Tujuan: halaman detail client setara v1 (grafik RAM/CPU historis + docker/
 port), datanya dari agent lewat WebSocket.
-- [ ] Halaman detail client: stat cards (RAM, Disk, CPU load, uptime,
-      hostname), grafik historis dari `client_metrics` (reuse pola
-      Chart.js dari v1)
-- [ ] Tombol/aksi "Refresh Docker" dan "Refresh Port" di halaman detail:
-      kirim command ke agent (kalau sedang online), tunggu balasan
-      (dengan timeout, mis. 10 detik), simpan/tampilkan di
-      `client_command_results`. Kalau client sedang DOWN, tampilkan pesan
-      jelas ("client tidak terkoneksi") alih-alih mencoba kirim command
-- [ ] Riwayat status (reuse pola `status_history` dari v1)
+- [x] Halaman detail client: stat cards (RAM, Disk, CPU load, uptime),
+      grafik historis dari `client_metrics` (Chart.js, reuse pola v1)
+- [x] Tombol "Refresh Docker"/"Refresh Port": AJAX ke
+      `POST /clients/:id/command/:command`, server minta agent lewat
+      `wsServer.requestCommand()` (timeout 10 detik), hasil upsert ke
+      `client_command_results`. Client offline → 502 dengan pesan
+      "Client tidak sedang terkoneksi." (bukan gagal diam-diam)
+- [x] Riwayat status (reuse pola `status_history` dari v1)
 Selesai kalau: halaman detail client menampilkan data nyata dari agent
 yang berjalan di Tahap C, grafik terisi setelah beberapa siklus payload,
 dan tombol refresh docker/port menampilkan hasil nyata dari client.
+**Status: selesai, di-commit `d18ca2a`. TERVALIDASI penuh via WebSocket
+client tiruan yang merespons command: klik-setara (`curl POST`)
+`docker_ps` → agent tiruan balas → tersimpan → tampil di halaman detail
+dengan timestamp. Command ke client yang sudah disconnect → 502 pesan
+jelas, dikonfirmasi.**
+
+**Bug ditemukan & diperbaiki selama testing Tahap A-D:** locals EJS
+bernama `client` bentrok dengan opsi reserved internal EJS
+(`opts.client`, dipakai EJS untuk menentukan mode compile "client-side").
+Efeknya: fungsi helper `include()` tidak terpasang di scope template,
+melempar `TypeError: include is not a function` — TAPI hanya saat
+di-render lewat `res.render()` Express, render manual `ejs.renderFile()`
+langsung tidak kena (beda jalur locals). Ditemukan lewat isolasi
+bertahap (ganti nama file, potong isi file setengah-setengah, ganti nama
+variabel satu per satu) sampai match dengan konstanta
+`_OPTS_PASSABLE_WITH_DATA` di `node_modules/ejs/lib/ejs.js:62`. Semua
+locals `client` diganti `item` di `client-detail.ejs`, `client-form.ejs`,
+dan route yang mengirimnya (`src/routes/dashboard.js`,
+`src/routes/clients.js`) — dicatat sebagai komentar di kode supaya tidak
+terulang tanpa sadar.
 
 ### Tahap E — Deploy ke KST Lab + nginx reverse proxy · menengah
 Tujuan: app jalan permanen di KST Lab, bisa diakses publik lewat
