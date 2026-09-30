@@ -1,7 +1,9 @@
 # Rencana: Dashboard Monitoring Server (sxops)
 
 Dibuat: 2026-09-30
-Status: disetujui 2026-09-30 (revisi 2026-09-30: registry server pindah dari YAML ke DB+form web)
+Status: disetujui 2026-09-30 (revisi 2026-09-30: registry server pindah dari
+YAML ke DB+form web; revisi 2026-09-30 #2: auto-discovery key dari `~/.ssh/`
+OS tempat app berjalan, hapus upload key lewat form)
 
 ## Masalah
 
@@ -21,9 +23,13 @@ kecil dengan login.
 Termasuk:
 - Registry server disimpan di SQLite, dikelola lewat form web (tambah/edit/
   hapus server, termasuk relasi jump host via dropdown).
-- Upload private key SSH lewat form (file disimpan di disk server
-  monitoring di luar direktori git, path-nya yang disimpan di DB — isi key
-  tidak pernah masuk ke kolom database).
+- Private key SSH **tidak diupload/disimpan oleh app sama sekali**. App
+  membaca langsung dari folder `~/.ssh/` milik OS tempat app berjalan
+  (server kantor, bukan laptop pemilik projek) — sama seperti cara kerja
+  `ssh` command biasa. Form hanya minta nama, host, port, user; saat
+  connect, app mencoba tiap key yang ditemukan di `~/.ssh/` satu per satu
+  sampai ada yang berhasil autentikasi (juga baca `~/.ssh/config` kalau
+  ada Host alias yang cocok dengan host target).
 - Scheduler polling berkala (interval bisa diatur, default beberapa menit)
   yang untuk tiap server:
   - Cek UP/DOWN (coba buka koneksi SSH; kalau connect refused/timeout → DOWN).
@@ -47,9 +53,13 @@ Tidak termasuk (sengaja):
 - Notifikasi otomatis (email/Telegram/Slack saat server down) — bisa jadi
   tahap lanjutan.
 - Real-time push (websocket) — cukup polling + refresh halaman.
-- Enkripsi private key at-rest di disk (file key disimpan apa adanya di
-  folder khusus dengan permission ketat, bukan dienkripsi — didokumentasikan
-  sebagai batasan, lihat Risiko).
+- Upload/manajemen private key lewat app (dibatalkan — lihat revisi #2 di
+  atas). Key sepenuhnya dikelola manual di `~/.ssh/` OS tempat app jalan,
+  di luar app ini.
+- Passphrase pada private key **tidak didukung** — key yang dipakai app
+  harus tanpa passphrase (app jalan otomatis/unattended, tidak ada tempat
+  untuk memasukkan passphrase interaktif). Didokumentasikan sebagai
+  prasyarat di README.
 - Multi-tenant / role-based access granular — login tim kecil cukup satu
   level akses untuk versi pertama.
 - Eksekusi command bebas dari dashboard ke server (hanya command tetap:
@@ -67,16 +77,19 @@ Tidak termasuk (sengaja):
 | Scheduler | `node-cron` in-process | Sederhana, jalan dalam proses yang sama dengan web server |
 | Auth | session cookie + password hash (bcrypt), user disimpan di SQLite | Cukup untuk tim kecil, tidak perlu OAuth/SSO di versi awal |
 | Sumber daftar server | tabel `servers` di SQLite, dikelola lewat form web | Bisa dikelola tanpa akses filesystem/redeploy; revisi dari rencana awal (YAML) atas permintaan pemilik projek |
-| Upload key | `multer`, simpan file ke `data/keys/<uuid>`, permission 600 | Isi private key tidak pernah lewat kolom teks database atau log |
+| Sumber private key | Auto-discovery dari `~/.ssh/` OS tempat app berjalan (coba tiap key sampai berhasil), plus baca `~/.ssh/config` untuk Host alias | Pemilik projek sudah setup key manual di server kantor untuk akses SSH sehari-hari; app cukup reuse itu, tidak perlu upload/simpan key sendiri — permukaan risiko lebih kecil (app tidak pernah menyentuh/menyimpan isi key) |
 | Deployment | systemd service di VPS/server kantor, atau Docker container | Sesuai preferensi: jalan terus-menerus di satu mesin |
 | Prasyarat di server target | user SSH dengan NOPASSWD sudo khusus untuk `ss` (dan `docker` kalau perlu) | `sudo ss -tulnp` butuh privilege; dibatasi lewat `/etc/sudoers.d/` agar tidak full sudo |
 
 ## Model data
 
 **SQLite:**
-- `servers`: id, name, group_name, host, port, user, ssh_key_path (path file
-  ter-upload, bukan isi key), via_server_id (FK ke servers.id, nullable),
-  has_docker (bool), created_at
+- `servers`: id, name, group_name, host, port, user, via_server_id (FK ke
+  servers.id, nullable), has_docker (bool), created_at. **Tidak ada kolom
+  key** — key di-discover saat runtime dari `~/.ssh/`, tidak dicatat per
+  server (kalau ada beberapa key valid, yang pertama berhasil dipakai dan
+  hasilnya di-cache in-memory selama proses app jalan, supaya tidak coba-
+  coba ulang tiap polling).
 - `users`: id, username, password_hash, created_at
 - `check_results`: id, server_id, checked_at, status (up/down), latency_ms,
   error_message
@@ -128,6 +141,33 @@ dan scheduler tetap jalan mengecek server-server itu seperti sebelumnya.
 validasi upload, anti-siklus, proteksi auth) — belum diuji ke SSH server
 nyata.**
 
+### Tahap 1c — Auto-discovery key dari ~/.ssh/, hapus upload · kecil
+Tujuan: form tambah/edit server tidak lagi minta upload key. App otomatis
+coba key yang ada di `~/.ssh/` OS tempat app berjalan saat connect ke
+server manapun. Revisi lingkup: pemilik projek sudah setup key manual di
+server kantor untuk SSH sehari-hari (contoh nyata: `iyan@36.88.32.238:1031`
+sudah bisa diakses tanpa password dari mesin ini), jadi app tinggal reuse.
+- [ ] Modul `sshKeyDiscovery.js`: scan `~/.ssh/` untuk file yang terlihat
+      seperti private key (skip `.pub`, `known_hosts`, `config`, `authorized_keys`),
+      urutan coba: key yang cocok di `~/.ssh/config` (kalau ada `Host` alias
+      untuk host target) dulu, baru sisanya
+- [ ] `sshClient.js`: hapus parameter `sshKey`, ganti jadi coba tiap key
+      hasil discovery satu per satu sampai `connect` berhasil; cache hasil
+      key-mana-yang-cocok per host (in-memory, reset saat app restart)
+      supaya polling berikutnya tidak coba-coba ulang dari awal
+- [ ] `serverStore.js` + `schema.sql`: hapus kolom `ssh_key_path`
+- [ ] Hapus `keyUpload.js`, `multer`, `uuid` dari dependencies; hapus route
+      upload dan field file di `server-form.ejs`
+- [ ] Pesan error kalau semua key gagal: sebutkan berapa key yang dicoba,
+      bukan cuma "auth failed" mentah dari ssh2
+- [ ] Dokumentasi README: key harus **tanpa passphrase**, harus sudah
+      ter-otorisasi (`authorized_keys`) di server target, folder `~/.ssh/`
+      dibaca dari HOME user yang menjalankan proses app (relevan kalau
+      nanti dijalankan sebagai systemd service dengan user berbeda)
+Selesai kalau: server baru bisa ditambahkan hanya dengan isi
+nama/host/port/user (tanpa upload apa pun), dan status UP/DOWN berhasil
+dicek memakai key yang sudah ada di `~/.ssh/` tanpa konfigurasi tambahan.
+
 ### Tahap 2 — Jump host / ProxyJump · kecil-menengah
 Tujuan: server internal (contoh `user@10.10.10.10` di balik bastion) bisa
 dicek statusnya lewat chaining SSH.
@@ -168,12 +208,11 @@ testing, dan dashboard ter-refresh sendiri tanpa reload manual.
 | Risiko | Dampak | Penanganan |
 |---|---|---|
 | Sudo untuk `ss -tulnp` butuh privilege luas kalau tidak dibatasi | Server target jadi kurang aman kalau NOPASSWD sudo full | Batasi lewat `/etc/sudoers.d/` hanya untuk command spesifik (`ss`, `docker`), didokumentasikan sebagai prasyarat |
-| Private key SSH tersimpan di mesin monitoring | Kalau mesin ini bobol, semua server ikut kebobol | Key disimpan di luar repo, permission file ketat (600), tidak pernah masuk DB/log/journal |
+| Semua key di `~/.ssh/` server kantor bisa dipakai app ke server manapun | Kalau server kantor (tempat app jalan) bobol, penyerang otomatis punya akses ke *semua* server yang key-nya ada di situ — app tidak membatasi key mana untuk server mana | Ini risiko inheren dari pilihan desain (reuse key OS); mitigasi ada di lapisan luar app: harden server kantor itu sendiri, restrict `authorized_keys` per server ke command tertentu kalau memungkinkan (`command=` di authorized_keys) |
+| Key dengan passphrase gagal dipakai tanpa pesan jelas | User bingung kenapa auto-discovery "gagal" padahal key ada | Skip key yang butuh passphrase saat parsing gagal karena encrypted, catat di log/pesan error mana yang di-skip karena itu |
 | Jump host down membawa banyak server internal ikut "unknown" | Bisa disalahartikan semua server itu down padahal cuma jalur putus | Bedakan status "DOWN" vs "UNREACHABLE (jump host down)" di UI |
 | Command SSH lambat/hang ke server yang benar-benar mati | Scheduler bisa numpuk kalau tidak ada timeout | Set timeout koneksi SSH tegas (mis. 5-10 detik) per cek |
-| Form tambah server (termasuk upload key) tidak terproteksi | Siapa pun yang bisa login bisa menambah akses ke server manapun; kalau route lupa di-`requireAuth`, siapa saja bisa upload key dan lihat topologi | Semua route CRUD server wajib lewat middleware `requireAuth` yang sudah ada; tidak ada endpoint form yang publik |
-| File key ter-upload tidak divalidasi | User (sengaja/tidak) upload file bukan private key, atau file terlalu besar | Batasi ukuran upload (mis. 64KB), validasi format dasar (header `-----BEGIN`) sebelum disimpan |
-| Private key tersimpan di `data/keys/` tanpa enkripsi | Sama seperti risiko key di disk sebelumnya, tapi sekarang lewat upload jadi lebih mudah tidak sengaja ke-commit kalau `.gitignore` kurang tepat | Folder `data/keys/` masuk `.gitignore`, permission file di-set 600 saat ditulis |
+| Form tambah server tidak terproteksi | Siapa pun yang bisa login bisa menambah target baru untuk dicoba semua key `~/.ssh/`-nya | Semua route CRUD server wajib lewat middleware `requireAuth` yang sudah ada; tidak ada endpoint form yang publik |
 
 ## Pertanyaan terbuka
 - Berapa interval polling yang pas (default akan saya set 2 menit, bisa diubah via `.env`) — beri tahu kalau ada angka spesifik yang diinginkan.
