@@ -115,5 +115,38 @@
         <button type="submit" formaction="/settings/test-telegram" class="btn-ghost">Kirim pesan uji</button>
       </div>
     </form>
+
+    <h2>Push notification browser</h2>
+    <div class="panel panel-pad">
+      <p class="meta" style="margin-top:0;">
+        Notifikasi langsung ke browser, tetap sampai walaupun tab dashboard
+        sudah ditutup. Aktifkan sekali di tiap browser/perangkat yang ingin
+        menerima. Didukung Chrome, Edge, Firefox, Opera, dan Safari 16.4+
+        (di iPhone/iPad, situs ini harus ditambahkan ke Home Screen dulu —
+        ketentuan dari Apple).
+      </p>
+
+      <div class="push-box">
+        <div>
+          <div id="push-status" class="push-status push-dim">Memeriksa status…</div>
+          <div class="field-hint" style="margin-top:0.3rem;">
+            <%= pushCount %> perangkat terdaftar saat ini.
+          </div>
+        </div>
+        <div style="display:flex; gap:0.55rem; flex-wrap:wrap;">
+          <button type="button" id="push-toggle" class="btn-primary">Aktifkan notifikasi</button>
+          <button type="button" id="push-test" class="btn-ghost">Kirim tes push</button>
+        </div>
+      </div>
+      <div id="push-test-status" class="meta" style="margin-top:0.6rem;"></div>
+
+      <% if (!httpsOk) { %>
+        <div class="error" style="margin:1rem 0 0;">
+          Web Push hanya bekerja lewat HTTPS (atau localhost). Halaman ini
+          sedang diakses lewat koneksi tidak aman, jadi tombol di atas tidak
+          akan berfungsi.
+        </div>
+      <% } %>
+    </div>
   </main>
 <%- include('partials/layout-foot') %>

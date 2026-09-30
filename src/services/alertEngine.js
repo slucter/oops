@@ -1,6 +1,7 @@
 const db = require('../db');
 const settingsStore = require('./settingsStore');
 const telegram = require('./telegramNotifier');
+const pushNotifier = require('./pushNotifier');
 
 /**
  * Mesin alert. Prinsipnya: satu baris `alerts` per kejadian, dibuat saat
@@ -68,7 +69,7 @@ function raise(client, { kind, severity, message, valueText }) {
     if (!isWorse) return existing;
 
     escalateAlert.run({ id: existing.id, severity, message, valueText: valueText || null });
-    notify(client, { severity, message, valueText, resolved: false, escalated: true })
+    notify(client, { kind, severity, message, valueText, resolved: false, escalated: true })
       .then((sent) => { if (sent) markNotified.run(existing.id); })
       .catch(() => {});
     return { ...existing, severity, message };
@@ -79,7 +80,7 @@ function raise(client, { kind, severity, message, valueText }) {
   });
   const alertId = info.lastInsertRowid;
 
-  notify(client, { severity, message, valueText, resolved: false })
+  notify(client, { kind, severity, message, valueText, resolved: false })
     .then((sent) => { if (sent) markNotified.run(alertId); })
     .catch(() => { /* notifikasi gagal tidak boleh menjatuhkan alur alert */ });
 
@@ -95,6 +96,7 @@ function clear(client, kind) {
 
   if (settingsStore.getBool('alert_on_recover')) {
     notify(client, {
+      kind,
       severity: 'info',
       message: recoveryMessageFor(kind, existing.message),
       valueText: null,
@@ -117,11 +119,25 @@ function recoveryMessageFor(kind, originalMessage) {
   return map[kind] || `Pulih: ${originalMessage}`;
 }
 
-async function notify(client, { severity, message, valueText, resolved, escalated }) {
-  if (!telegram.isEnabled()) return false;
-
+/**
+ * Kirim notifikasi ke semua kanal yang aktif (Telegram + Web Push).
+ * Kegagalan satu kanal tidak menghalangi kanal lain, dan tidak pernah
+ * melempar ke pemanggil.
+ */
+async function notify(client, { kind, severity, message, valueText, resolved, escalated }) {
   const icon = resolved ? '✅' : severity === 'critical' ? '🔴' : severity === 'warning' ? '🟠' : 'ℹ️';
   const head = resolved ? 'PULIH' : escalated ? `MEMBURUK → ${severity.toUpperCase()}` : severity.toUpperCase();
+
+  const results = await Promise.all([
+    notifyTelegram(client, { icon, head, message, valueText }),
+    notifyPush(client, { kind, icon, head, severity, message, valueText, resolved }),
+  ]);
+
+  return results.some(Boolean);
+}
+
+async function notifyTelegram(client, { icon, head, message, valueText }) {
+  if (!telegram.isEnabled()) return false;
 
   const lines = [
     `${icon} <b>${telegram.esc(head)}</b> — ${telegram.esc(client.name)}`,
@@ -137,6 +153,30 @@ async function notify(client, { severity, message, valueText, resolved, escalate
   const res = await telegram.sendMessage(lines.join('\n'));
   if (!res.ok) console.error(`[alert] gagal kirim Telegram: ${res.error}`);
   return res.ok;
+}
+
+async function notifyPush(client, { kind, icon, head, severity, message, valueText, resolved }) {
+  if (!pushNotifier.isEnabled()) return false;
+
+  try {
+    const bodyParts = [message];
+    if (valueText) bodyParts.push(valueText);
+
+    const res = await pushNotifier.sendToAll({
+      title: `${icon} ${head} — ${client.name}`,
+      body: bodyParts.join('\n'),
+      severity: resolved ? 'info' : severity,
+      // Tag per (client, jenis): notifikasi menggantikan yang lama untuk
+      // masalah yang sama, jadi tidak menumpuk di notification center.
+      tag: `oops-${client.id}-${kind || 'alert'}`,
+      url: `/client/${client.id}`,
+      timestamp: Date.now(),
+    });
+    return res.sent > 0;
+  } catch (err) {
+    console.error('[alert] gagal kirim Web Push:', err.message);
+    return false;
+  }
 }
 
 /**

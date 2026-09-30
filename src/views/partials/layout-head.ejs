@@ -622,6 +622,24 @@
       color: var(--accent);
     }
 
+    /* ================= PUSH ================= */
+    .push-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      padding: 0.9rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: rgba(0,0,0,.25);
+    }
+    .push-status { font-size: 0.82rem; display: flex; align-items: center; gap: 0.45rem; }
+    .push-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+    .push-good { color: var(--accent); }
+    .push-dim { color: var(--text-dim); }
+    .push-bad { color: var(--danger); }
+
     /* ================= ALERT ================= */
     .alert-dot {
       display: inline-flex;

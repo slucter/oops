@@ -89,3 +89,19 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts (client_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts (client_id, kind) WHERE resolved_at IS NULL;
+
+-- Langganan Web Push per browser/perangkat. `endpoint` unik dari push
+-- service (FCM/Mozilla/Apple) dan sekaligus jadi identitasnya — satu baris
+-- per browser, bukan per user, karena satu user bisa punya banyak perangkat.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_success_at TEXT,
+  fail_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions (user_id);

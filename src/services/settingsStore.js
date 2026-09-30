@@ -23,6 +23,10 @@ const DEFAULTS = {
   telegram_bot_token: '',
   telegram_chat_id: '',
   telegram_enabled: '0',
+  push_enabled: '1',
+  vapid_public_key: '',
+  vapid_private_key: '',
+  vapid_subject: '',
 };
 
 function get(key) {
@@ -51,10 +55,18 @@ function setMany(entries) {
   tx(Object.entries(entries));
 }
 
+// Nilai rahasia yang tidak boleh ikut ke view/JSON. Kunci privat VAPID
+// tidak pernah dibutuhkan di browser, dan token bot ditangani terpisah
+// lewat maskSecret() di tempat yang memang perlu menampilkannya tersamar.
+const NEVER_EXPOSE = new Set(['vapid_private_key']);
+
 /** Semua pengaturan (dengan default terisi) untuk ditampilkan di form. */
 function getAll() {
   const out = {};
-  for (const key of Object.keys(DEFAULTS)) out[key] = get(key);
+  for (const key of Object.keys(DEFAULTS)) {
+    if (NEVER_EXPOSE.has(key)) continue;
+    out[key] = get(key);
+  }
   return out;
 }
 

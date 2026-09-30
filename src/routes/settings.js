@@ -1,6 +1,7 @@
 const express = require('express');
 const settingsStore = require('../services/settingsStore');
 const telegram = require('../services/telegramNotifier');
+const pushNotifier = require('../services/pushNotifier');
 
 const router = express.Router();
 
@@ -14,12 +15,21 @@ const NUMERIC_KEYS = [
 
 const BOOL_KEYS = ['alert_on_offline', 'alert_on_recover', 'alert_on_new_client', 'telegram_enabled'];
 
-function viewModel(extra = {}) {
+function viewModel(req, extra = {}) {
   const s = settingsStore.getAll();
+  // Web Push butuh secure context. Di balik reverse proxy, protokol asli
+  // ada di X-Forwarded-Proto — req.protocol sendiri akan bilang "http"
+  // karena koneksi nginx->app memang plain.
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const host = req.hostname || '';
+  const httpsOk = proto === 'https' || host === 'localhost' || host === '127.0.0.1';
+
   return {
     settings: s,
     tokenMasked: settingsStore.maskSecret(s.telegram_bot_token),
     hasToken: !!s.telegram_bot_token,
+    pushCount: pushNotifier.countSubscriptions(),
+    httpsOk,
     error: null,
     notice: null,
     ...extra,
@@ -27,7 +37,7 @@ function viewModel(extra = {}) {
 }
 
 router.get('/settings', (req, res) => {
-  res.render('settings', viewModel());
+  res.render('settings', viewModel(req));
 });
 
 router.post('/settings', (req, res) => {
@@ -38,7 +48,7 @@ router.post('/settings', (req, res) => {
     if (raw === undefined || raw === '') continue;
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) {
-      return res.status(400).render('settings', viewModel({ error: `Nilai "${key}" harus berupa angka positif.` }));
+      return res.status(400).render('settings', viewModel(req, { error: `Nilai "${key}" harus berupa angka positif.` }));
     }
     updates[key] = String(n);
   }
@@ -60,7 +70,7 @@ router.post('/settings', (req, res) => {
   if (tokenInput) updates.telegram_bot_token = tokenInput;
 
   settingsStore.setMany(updates);
-  res.render('settings', viewModel({ notice: 'Pengaturan tersimpan.' }));
+  res.render('settings', viewModel(req, { notice: 'Pengaturan tersimpan.' }));
 });
 
 /**
@@ -79,11 +89,11 @@ router.post('/settings/test-telegram', async (req, res) => {
   );
 
   if (result.ok) {
-    return res.render('settings', viewModel({
+    return res.render('settings', viewModel(req, {
       notice: 'Pesan uji terkirim. Cek grup Telegram Anda. Jangan lupa Simpan kalau token/chat ID diubah.',
     }));
   }
-  res.status(400).render('settings', viewModel({ error: `Gagal mengirim: ${result.error}` }));
+  res.status(400).render('settings', viewModel(req, { error: `Gagal mengirim: ${result.error}` }));
 });
 
 module.exports = router;
