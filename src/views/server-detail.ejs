@@ -22,12 +22,58 @@
       <p class="error"><%= server.lastCheck.error_message %></p>
     <% } %>
 
+    <% if (server.resources && server.resources.error_message) { %>
+      <p class="error">Gagal ambil info resource: <%= server.resources.error_message %></p>
+    <% } else if (server.resources) { %>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="label">RAM</div>
+          <div class="value"><%- include('partials/usage-bar', { percent: server.resources.memPercent }) %></div>
+          <% if (server.resources.mem_total_mb != null) { %>
+            <div class="sub"><%= (server.resources.mem_used_mb / 1024).toFixed(1) %> GB / <%= (server.resources.mem_total_mb / 1024).toFixed(1) %> GB</div>
+          <% } %>
+        </div>
+        <div class="stat-card">
+          <div class="label">Disk (/)</div>
+          <div class="value"><%- include('partials/usage-bar', { percent: server.resources.diskPercent }) %></div>
+          <% if (server.resources.disk_total_gb != null) { %>
+            <div class="sub"><%= server.resources.disk_used_gb %> GB / <%= server.resources.disk_total_gb %> GB</div>
+          <% } %>
+        </div>
+        <div class="stat-card">
+          <div class="label">CPU Load (1m / 5m / 15m)</div>
+          <div class="value">
+            <%= server.resources.load_1m != null ? server.resources.load_1m : '-' %>
+          </div>
+          <div class="sub">
+            <%= server.resources.load_5m != null ? server.resources.load_5m : '-' %> /
+            <%= server.resources.load_15m != null ? server.resources.load_15m : '-' %>
+            <% if (server.resources.cpu_count) { %> · <%= server.resources.cpu_count %> core<% } %>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Uptime OS</div>
+          <div class="value" style="font-size: 1rem;"><%= server.resources.uptime_text || '-' %></div>
+        </div>
+      </div>
+      <p class="meta">Diambil: <%= server.resources.checked_at %></p>
+    <% } %>
+
     <h2>Latency</h2>
     <% if (server.latencyHistory.length === 0) { %>
       <p class="meta">Belum ada data.</p>
     <% } else { %>
       <div style="background:#161922; border-radius:6px; padding:1rem;">
         <canvas id="latency-chart" height="80"></canvas>
+      </div>
+    <% } %>
+
+    <h2>RAM &amp; CPU Load</h2>
+    <% if (server.resourceHistory.length === 0) { %>
+      <p class="meta">Belum ada data.</p>
+    <% } else { %>
+      <div style="background:#161922; border-radius:6px; padding:1rem;">
+        <canvas id="resource-chart" height="80"></canvas>
       </div>
     <% } %>
 
@@ -72,8 +118,11 @@
     <% } %>
   </main>
 
-  <% if (server.latencyHistory.length > 0) { %>
+  <% if (server.latencyHistory.length > 0 || server.resourceHistory.length > 0) { %>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <% } %>
+
+  <% if (server.latencyHistory.length > 0) { %>
     <script>
       const latencyData = <%- JSON.stringify(server.latencyHistory) %>;
 
@@ -120,6 +169,76 @@
               ticks: { color: '#9aa0ac' },
               grid: { color: '#262a36' },
               title: { display: true, text: 'ms', color: '#9aa0ac' },
+            },
+          },
+          plugins: {
+            legend: { labels: { color: '#e6e6e6' } },
+          },
+        },
+      });
+    </script>
+  <% } %>
+
+  <% if (server.resourceHistory.length > 0) { %>
+    <script>
+      const resourceData = <%- JSON.stringify(server.resourceHistory) %>;
+
+      const resLabels = resourceData.map((d) => d.checked_at);
+      const memPercentData = resourceData.map((d) =>
+        d.mem_total_mb ? Math.round((d.mem_used_mb / d.mem_total_mb) * 100) : null
+      );
+      const loadData = resourceData.map((d) => d.load_1m);
+
+      new Chart(document.getElementById('resource-chart'), {
+        type: 'line',
+        data: {
+          labels: resLabels,
+          datasets: [
+            {
+              label: 'RAM (%)',
+              data: memPercentData,
+              borderColor: '#7dd3fc',
+              backgroundColor: 'rgba(125, 211, 252, 0.1)',
+              yAxisID: 'yPercent',
+              tension: 0.25,
+              pointRadius: 2,
+              fill: true,
+            },
+            {
+              label: 'CPU load (1m)',
+              data: loadData,
+              borderColor: '#facc15',
+              backgroundColor: 'rgba(250, 204, 21, 0.1)',
+              yAxisID: 'yLoad',
+              tension: 0.25,
+              pointRadius: 2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: {
+              ticks: { color: '#9aa0ac', maxTicksLimit: 8 },
+              grid: { color: '#262a36' },
+            },
+            yPercent: {
+              type: 'linear',
+              position: 'left',
+              min: 0,
+              max: 100,
+              ticks: { color: '#9aa0ac' },
+              grid: { color: '#262a36' },
+              title: { display: true, text: 'RAM %', color: '#9aa0ac' },
+            },
+            yLoad: {
+              type: 'linear',
+              position: 'right',
+              beginAtZero: true,
+              ticks: { color: '#9aa0ac' },
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: 'load', color: '#9aa0ac' },
             },
           },
           plugins: {

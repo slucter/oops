@@ -38,6 +38,8 @@
             <th>Host</th>
             <th>Status</th>
             <th>Latency</th>
+            <th>RAM</th>
+            <th>Disk</th>
             <th>Cek terakhir</th>
             <th></th>
           </tr>
@@ -56,6 +58,8 @@
               <td><%= s.host %>:<%= s.port %></td>
               <td><span class="badge badge-<%= status %>"><%= status.toUpperCase() %></span></td>
               <td><%= s.lastCheck && s.lastCheck.latency_ms != null ? s.lastCheck.latency_ms + ' ms' : '-' %></td>
+              <td><%- include('partials/usage-bar', { percent: s.resources ? s.resources.memPercent : null }) %></td>
+              <td><%- include('partials/usage-bar', { percent: s.resources ? s.resources.diskPercent : null }) %></td>
               <td class="meta"><%= s.lastCheck ? s.lastCheck.checked_at : 'belum pernah dicek' %></td>
               <td><a class="server-link" href="/servers/<%= s.id %>/edit">edit</a></td>
             </tr>

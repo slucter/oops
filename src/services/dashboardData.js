@@ -33,6 +33,26 @@ const getHistory = db.prepare(`
   LIMIT 20
 `);
 
+const getLatestResourceSnapshot = db.prepare(`
+  SELECT mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
+         load_1m, load_5m, load_15m, uptime_text, cpu_count,
+         error_message, checked_at
+  FROM resource_snapshots
+  WHERE server_id = ?
+  ORDER BY checked_at DESC
+  LIMIT 1
+`);
+
+const RESOURCE_POINTS = 100;
+
+const getResourceHistoryDesc = db.prepare(`
+  SELECT checked_at, mem_total_mb, mem_used_mb, load_1m, cpu_count
+  FROM resource_snapshots
+  WHERE server_id = ? AND error_message IS NULL
+  ORDER BY checked_at DESC
+  LIMIT ?
+`);
+
 const LATENCY_POINTS = 100;
 
 const getLatencyHistoryDesc = db.prepare(`
@@ -43,6 +63,17 @@ const getLatencyHistoryDesc = db.prepare(`
   LIMIT ?
 `);
 
+function withResourcePercent(snapshot) {
+  if (!snapshot) return null;
+  const memPercent = snapshot.mem_total_mb
+    ? Math.round((snapshot.mem_used_mb / snapshot.mem_total_mb) * 100)
+    : null;
+  const diskPercent = snapshot.disk_total_gb
+    ? Math.round((snapshot.disk_used_gb / snapshot.disk_total_gb) * 100)
+    : null;
+  return { ...snapshot, memPercent, diskPercent };
+}
+
 function getDashboardServers() {
   const servers = listServers();
   const byId = new Map(servers.map((s) => [s.id, s]));
@@ -50,6 +81,7 @@ function getDashboardServers() {
     ...s,
     viaName: s.via != null ? (byId.get(s.via) || {}).name || null : null,
     lastCheck: getLatestCheck.get(s.id) || null,
+    resources: withResourcePercent(getLatestResourceSnapshot.get(s.id)),
   }));
   return sortAsTree(withData);
 }
@@ -112,6 +144,8 @@ function getServerDetail(serverId) {
     ports: getLatestPortSnapshot.get(id) || null,
     history: getHistory.all(id),
     latencyHistory: getLatencyHistoryDesc.all(id, LATENCY_POINTS).reverse(),
+    resources: withResourcePercent(getLatestResourceSnapshot.get(id)),
+    resourceHistory: getResourceHistoryDesc.all(id, RESOURCE_POINTS).reverse(),
   };
 }
 

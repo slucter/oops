@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS port_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_port_snapshots_server ON port_snapshots (server_id, checked_at DESC);
 
+CREATE TABLE IF NOT EXISTS resource_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  checked_at TEXT NOT NULL DEFAULT (datetime('now')),
+  mem_total_mb INTEGER,
+  mem_used_mb INTEGER,
+  disk_total_gb REAL,
+  disk_used_gb REAL,
+  load_1m REAL,
+  load_5m REAL,
+  load_15m REAL,
+  uptime_text TEXT,
+  cpu_count INTEGER,
+  error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_resource_snapshots_server ON resource_snapshots (server_id, checked_at DESC);
+
 CREATE TABLE IF NOT EXISTS status_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,

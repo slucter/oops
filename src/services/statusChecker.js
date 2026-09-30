@@ -1,6 +1,7 @@
 const db = require('../db');
 const { connect, execCommand, JumpHostUnreachableError } = require('./sshClient');
 const { getServerById } = require('./serverStore');
+const { RESOURCE_COMMAND, parseResourceOutput } = require('./resourceParser');
 
 const insertCheckResult = db.prepare(`
   INSERT INTO check_results (server_id, status, latency_ms, error_message)
@@ -78,6 +79,9 @@ async function collectServerInfo(server, handle) {
   if (dockerResult.code !== 127) {
     saveDockerSnapshot(server.id, dockerResult);
   }
+
+  const resourceResult = await execCommand(handle, RESOURCE_COMMAND);
+  saveResourceSnapshot(server.id, resourceResult);
 }
 
 const insertPortSnapshot = db.prepare(`
@@ -104,6 +108,30 @@ function saveDockerSnapshot(serverId, result) {
   } else {
     insertDockerSnapshot.run({ serverId, rawOutput: null, errorMessage: result.stderr || `exit code ${result.code}` });
   }
+}
+
+const insertResourceSnapshot = db.prepare(`
+  INSERT INTO resource_snapshots (
+    server_id, mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
+    load_1m, load_5m, load_15m, uptime_text, cpu_count, error_message
+  )
+  VALUES (
+    @serverId, @memTotalMb, @memUsedMb, @diskTotalGb, @diskUsedGb,
+    @load1m, @load5m, @load15m, @uptimeText, @cpuCount, @errorMessage
+  )
+`);
+
+function saveResourceSnapshot(serverId, result) {
+  if (result.code !== 0) {
+    insertResourceSnapshot.run({
+      serverId, memTotalMb: null, memUsedMb: null, diskTotalGb: null, diskUsedGb: null,
+      load1m: null, load5m: null, load15m: null, uptimeText: null, cpuCount: null,
+      errorMessage: result.stderr || `exit code ${result.code}`,
+    });
+    return;
+  }
+  const parsed = parseResourceOutput(result.stdout);
+  insertResourceSnapshot.run({ serverId, ...parsed, errorMessage: null });
 }
 
 module.exports = { checkServer, collectServerInfo, getServerById };

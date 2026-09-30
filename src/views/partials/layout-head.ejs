@@ -9,7 +9,7 @@
     body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #0f1115; color: #e6e6e6; }
     header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background: #161922; border-bottom: 1px solid #262a36; }
     header a { color: #e6e6e6; text-decoration: none; font-weight: 600; }
-    main { padding: 1.5rem; max-width: 1000px; margin: 0 auto; }
+    main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
     th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #262a36; }
     th { color: #9aa0ac; font-weight: 500; font-size: 0.85rem; text-transform: uppercase; }
@@ -29,6 +29,17 @@
     .error { color: #f87171; margin-bottom: 1rem; }
     .login-box { max-width: 320px; margin: 4rem auto; }
     .meta { color: #9aa0ac; font-size: 0.85rem; }
+    .usage-bar { width: 70px; height: 8px; border-radius: 4px; background: #262a36; overflow: hidden; display: inline-block; vertical-align: middle; }
+    .usage-bar-fill { height: 100%; }
+    .usage-ok { background: #4ade80; }
+    .usage-warn { background: #facc15; }
+    .usage-crit { background: #f87171; }
+    .usage-label { font-size: 0.8rem; color: #9aa0ac; margin-left: 0.4rem; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin: 1rem 0; }
+    .stat-card { background: #161922; border-radius: 6px; padding: 1rem; }
+    .stat-card .label { color: #9aa0ac; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 0.4rem; }
+    .stat-card .value { font-size: 1.4rem; font-weight: 600; }
+    .stat-card .sub { color: #9aa0ac; font-size: 0.8rem; margin-top: 0.2rem; }
   </style>
 </head>
 <body>
