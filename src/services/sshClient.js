@@ -93,6 +93,13 @@ async function connect(server) {
  * prompt password (auth harus lewat key yang sudah ada di jump host),
  * StrictHostKeyChecking=accept-new supaya tidak macet di prompt host key
  * pertama kali (app jalan unattended).
+ *
+ * `command` di-quote sebagai SATU argumen tunggal (bukan disambung apa
+ * adanya) — kalau tidak, shell jump host akan menginterpretasi `;`/`|`
+ * di dalam `command` sebagai pemisah command DI LEVELNYA SENDIRI, jadi
+ * cuma bagian pertama yang benar-benar terkirim ke `ssh`, sisanya
+ * dieksekusi di jump host itu sendiri (bug nyata: df -h di server
+ * internal balik menampilkan disk milik jump host, bukan disk target).
  */
 function buildRemoteSshCommand(targetServer, command) {
   const target = `${shellQuote(targetServer.user)}@${shellQuote(targetServer.host)}`;
@@ -104,7 +111,7 @@ function buildRemoteSshCommand(targetServer, command) {
     `-p ${Number(targetServer.port) || 22}`,
     target,
     '--',
-    command,
+    shellQuote(command),
   ].join(' ');
 }
 
