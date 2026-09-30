@@ -266,26 +266,51 @@ terulang tanpa sadar.
 ### Tahap E — Deploy ke KST Lab + nginx reverse proxy · menengah
 Tujuan: app jalan permanen di KST Lab, bisa diakses publik lewat
 `mon.kawandev.xyz`.
-- [ ] Cek port yang sudah dipakai di KST Lab (`ss -tulnp` atau setara),
-      pilih port internal yang kosong untuk app v2
-- [ ] Deploy kode ke KST Lab (git clone/pull dari branch ini, atau build
-      artifact — cara persis diputuskan saat eksekusi), `npm install
-      --production`, setup `.env`
-- [ ] Jalankan sebagai `systemctl --user` service di KST Lab (bukan
-      `npm start` manual di terminal — supaya survive logout/reboot),
-      `loginctl enable-linger` untuk user yang menjalankan
-- [ ] Login ke Load Balancer KST, konfigurasi nginx: server block untuk
-      `mon.kawandev.xyz`, `proxy_pass` ke `10.10.10.15:<port>`, header
-      `Upgrade`/`Connection` untuk WebSocket, cek config sebelum reload
-      (`nginx -t`)
-- [ ] Verifikasi dari luar: `mon.kawandev.xyz` bisa diakses, login
-      dashboard bekerja, dan **command instalasi yang ditampilkan di web
-      memakai domain publik** (bukan `10.10.10.15` yang cuma reachable
-      internal) — supaya client di luar KST bisa install
+- [x] Cek port yang sudah dipakai di KST Lab (`ss -tulnp` + `docker ps -a`),
+      port `1509` dipilih (kosong, konsisten dengan pola port 1500-1508
+      yang sudah dipakai service lain di server itu)
+- [x] Deploy kode ke KST Lab (`git clone` branch `development` ke `~/oops`),
+      `npm install --production`, `.env` produksi dibuat manual (SESSION_SECRET
+      via `openssl rand -hex 32`, `PUBLIC_BASE_URL=https://mon.kawandev.xyz`)
+- [x] `systemctl --user` service `oops-server` dengan `Restart=always` +
+      `StartLimitIntervalSec=0`, `loginctl enable-linger iyan` (berhasil
+      tanpa perlu sudo eksplisit di KST Lab — user itu sudah punya izin
+      polkit untuk lingering)
+- [x] Nginx di Load Balancer KST (`10.10.10.5`, hostname internal
+      `kst-service-kepeg`): server block `mon.kawandev.xyz` meneruskan
+      `/agent` (dengan header Upgrade/Connection) dan `/` sama-sama ke
+      `10.10.10.15:1509`, mengikuti pola `board.kawandev.xyz.conf` yang
+      sudah ada. `nginx -t` sebelum reload.
+- [x] Certbot (`--nginx` plugin) generate sertifikat Let's Encrypt untuk
+      `mon.kawandev.xyz`, auto-deploy ke config + redirect HTTP→HTTPS,
+      auto-renewal terjadwal (expire 2026-12-29)
+- [x] Verifikasi dari luar: login dashboard, redirect HTTP→HTTPS, dan
+      **WebSocket lewat `wss://`** (bukan cuma HTTP) — token invalid
+      ditolak 401 sebelum handshake selesai, mengonfirmasi nginx
+      meneruskan upgrade request dengan benar lewat TLS
 Selesai kalau: `mon.kawandev.xyz` dari browser di luar jaringan kantor
 menampilkan halaman login dashboard, dan minimal satu client uji coba
 (bukan cuma di KST Lab sendiri) berhasil connect lewat command instalasi
 yang pakai domain publik itu.
+**Status: infrastruktur selesai & TERVALIDASI, di-commit `45fe918`
+(kode) — perubahan server (systemd, nginx, certbot) dilakukan langsung
+di server, tidak ada di repo. `https://mon.kawandev.xyz` LIVE sejak
+2026-09-30: HTTP 200 di `/login`, redirect 301 HTTP→HTTPS, `wss://` WebSocket
+handshake terverifikasi (401 untuk token invalid, sebelum pernah
+menerima koneksi). BELUM diverifikasi: client sungguhan (bukan test
+handshake) yang install lewat command dari domain publik dan terlihat
+UP di dashboard produksi — itu langkah pertama yang perlu dicoba
+pemilik projek sekarang app sudah live.**
+
+**Catatan tambahan di luar rencana awal:** produk di-rename dari
+"sxops" jadi **"Oops"** (Online Operations & Performance Sentinel) atas
+permintaan pemilik projek, konsisten di semua lapisan (UI, nama paket
+npm, file database, env var agent, nama service systemd). Redeploy
+rename ke KST Lab dilakukan sebagai bagian dari Tahap E ini — service
+lama `sxops-server` di-stop+disable, file DB di-rename (bukan dibuat
+ulang, supaya user `kawan` yang sudah dibuat tidak hilang), service
+baru `oops-server` menggantikannya. Lihat `deploy/kst-lab.md` untuk
+detail operasional lengkap (port, akses SSH, cara update kode).
 
 ## Risiko
 
