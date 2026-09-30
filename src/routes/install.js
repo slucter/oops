@@ -75,20 +75,44 @@ Environment=SXOPS_INTERVAL_MS=${interval}
 ExecStart=$(command -v node) $SXOPS_DIR/agent.js
 Restart=always
 RestartSec=5
+StartLimitIntervalSec=0
 
 [Install]
 WantedBy=default.target
 UNIT
 
+echo "[sxops-install] mengaktifkan lingering supaya agent tetap jalan setelah reboot tanpa perlu login..."
+LINGER_OK=0
+if loginctl enable-linger "$(whoami)" 2>/dev/null; then
+  LINGER_OK=1
+elif sudo -n loginctl enable-linger "$(whoami)" 2>/dev/null; then
+  LINGER_OK=1
+fi
+
+if [ "$LINGER_OK" -ne 1 ]; then
+  echo "[sxops-install] GAGAL mengaktifkan lingering (loginctl enable-linger)." >&2
+  echo "[sxops-install] Tanpa ini, agent TIDAK akan otomatis jalan lagi setelah server di-reboot" >&2
+  echo "[sxops-install] sampai ada yang login manual sebagai user ini. Jalankan manual:" >&2
+  echo "[sxops-install]   sudo loginctl enable-linger $(whoami)" >&2
+  echo "[sxops-install] lalu ulangi instalasi ini." >&2
+  exit 1
+fi
+
+# XDG_RUNTIME_DIR bisa belum ter-set di sesi non-interaktif (mis. lewat curl | bash
+# dari SSH tanpa pty penuh) - systemctl --user butuh ini untuk connect ke bus user.
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+
 systemctl --user daemon-reload
 systemctl --user enable "$SERVICE_NAME"
 systemctl --user restart "$SERVICE_NAME"
 
-if command -v loginctl >/dev/null 2>&1; then
-  loginctl enable-linger "$(whoami)" 2>/dev/null || echo "[sxops-install] tidak bisa enable-linger (mungkin butuh sudo) - agent tidak akan auto-start sebelum user login setelah reboot"
+sleep 2
+if systemctl --user is-active --quiet "$SERVICE_NAME"; then
+  echo "[sxops-install] selesai. Agent aktif dan akan otomatis jalan lagi setelah restart proses maupun reboot server."
+else
+  echo "[sxops-install] service terdaftar tapi belum aktif. Cek detail: systemctl --user status $SERVICE_NAME" >&2
+  exit 1
 fi
-
-echo "[sxops-install] selesai. Cek status: systemctl --user status $SERVICE_NAME"
 `;
 }
 

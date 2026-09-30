@@ -25,6 +25,19 @@ if (!SERVER_URL || !TOKEN) {
   process.exit(1);
 }
 
+// Jaring pengaman terakhir: kalau ada bug tak terduga yang lolos dari try/
+// catch, jangan mati diam-diam — log lalu exit dengan kode error supaya
+// systemd (Restart=always) yang menghidupkan lagi, bukan proses zombie
+// yang tidak pernah reconnect maupun ter-restart.
+process.on('uncaughtException', (err) => {
+  console.error('[agent] uncaught exception, keluar supaya systemd restart:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[agent] unhandled rejection, keluar supaya systemd restart:', err);
+  process.exit(1);
+});
+
 let ws = null;
 let metricTimer = null;
 let reconnectDelay = RECONNECT_BASE_MS;
@@ -58,14 +71,23 @@ function connect() {
     }
   });
 
-  ws.on('close', () => {
-    console.log('[agent] koneksi terputus, reconnect dalam', reconnectDelay, 'ms');
+  let reconnectScheduled = false;
+
+  function handleDisconnect(reason) {
+    // 'close' dan 'error' bisa dua-duanya terpicu untuk kejadian yang sama
+    // (mis. connection refused) — pastikan reconnect cuma dijadwalkan
+    // sekali, bukan dobel.
+    if (reconnectScheduled) return;
+    reconnectScheduled = true;
+    console.log(`[agent] ${reason}, reconnect dalam ${reconnectDelay} ms`);
     clearInterval(metricTimer);
     scheduleReconnect();
-  });
+  }
 
+  ws.on('close', () => handleDisconnect('koneksi terputus'));
   ws.on('error', (err) => {
     console.error('[agent] error koneksi:', err.message);
+    handleDisconnect('error koneksi');
   });
 }
 
