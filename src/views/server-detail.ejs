@@ -34,7 +34,7 @@
       <% } %>
     <% } %>
 
-    <h2>Port listen (sudo ss -tulnp)</h2>
+    <h2>Port listen (ss -tulnp)</h2>
     <% if (server.ports && server.ports.raw_output) { %>
       <p class="meta">Diambil: <%= server.ports.checked_at %></p>
       <pre><%= server.ports.raw_output %></pre>

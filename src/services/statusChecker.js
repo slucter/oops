@@ -53,13 +53,19 @@ function recordResult(serverId, status, latencyMs, errorMessage) {
 }
 
 /**
- * Jalankan docker ps -a dan sudo ss -tulnp lewat handle koneksi yang
- * sudah ada (hasil checkServer), supaya tidak perlu koneksi/probe kedua.
- * Untuk server dengan `via`, execCommand otomatis menjalankan command
- * ini lewat `ssh` di dalam shell jump host (lihat sshClient.js).
+ * Jalankan docker ps -a dan ss -tulnp lewat handle koneksi yang sudah ada
+ * (hasil checkServer), supaya tidak perlu koneksi/probe kedua. Untuk
+ * server dengan `via`, execCommand otomatis menjalankan command ini
+ * lewat `ssh` di dalam shell jump host (lihat sshClient.js).
+ *
+ * ss dijalankan TANPA sudo dengan sengaja: untuk kebutuhan monitoring
+ * (server hidup, port apa yang kebuka), itu cukup — nama proses/PID
+ * untuk service yang jalan sebagai root memang tidak akan terlihat,
+ * tapi port dan statusnya tetap ada. Ini menghindari kebutuhan setup
+ * sudoers NOPASSWD di tiap server target.
  */
 async function collectServerInfo(server, handle) {
-  const portResult = await execCommand(handle, 'sudo ss -tulnp');
+  const portResult = await execCommand(handle, 'ss -tulnp');
   savePortSnapshot(server.id, portResult);
 
   if (server.hasDocker) {

@@ -44,24 +44,15 @@ sendiri diproteksi login (lihat di bawah).
 
 ## Prasyarat di tiap server target
 
-User SSH yang dipakai butuh izin sudo tanpa password, dibatasi hanya untuk
-command yang dipakai dashboard ini (jangan beri full sudo). Ini berlaku di
-**server target itu sendiri** — untuk server yang diakses lewat jump host,
-setup ini dilakukan di server target, bukan di jump host-nya.
-
-Cari dulu path pasti `ss` di server itu (bisa beda-beda, mis. `/usr/bin/ss`
-atau `/usr/sbin/ss`):
-
-```bash
-which ss
-```
-
-Lalu tambahkan lewat `visudo -f /etc/sudoers.d/sxops`, isi dengan path yang
-sesuai hasil `which ss` di atas:
-
-```
-<user> ALL=(root) NOPASSWD: /usr/bin/ss
-```
+Port listen dicek dengan `ss -tulnp` **tanpa sudo** — sengaja, supaya tidak
+perlu setup apa pun di server target untuk fitur ini. Konsekuensinya: nama
+proses/PID untuk service yang jalan sebagai root (nginx, docker daemon,
+dll) tidak akan terlihat, hanya port dan statusnya. Cukup untuk kebutuhan
+"server hidup, port apa yang kebuka" — kalau nanti perlu info proses
+lengkap (mis. untuk investigasi keamanan), command ini bisa diganti balik
+ke `sudo ss -tulnp` di `src/services/statusChecker.js`, dengan syarat user
+SSH diberi `NOPASSWD` sudo **khusus** untuk `ss` di server itu (cek path
+pastinya dengan `which ss`, lalu `visudo -f /etc/sudoers.d/sxops`).
 
 Kalau server itu juga punya Docker dan dicentang "Ada Docker" di form, pastikan
 user SSH tergabung di group `docker` (`sudo usermod -aG docker <user>`) supaya
@@ -82,7 +73,7 @@ Buka `http://localhost:3000`, login dengan user yang dibuat lewat
 - `src/services/serverStore.js` — CRUD server (tabel `servers` di SQLite)
 - `src/services/sshKeyDiscovery.js` — cari private key di `~/.ssh/`, baca `~/.ssh/config`
 - `src/services/sshClient.js` — koneksi SSH (coba tiap key sampai berhasil), termasuk chaining lewat jump host (`via`)
-- `src/services/statusChecker.js` — cek status + ambil `docker ps -a` / `sudo ss -tulnp`
+- `src/services/statusChecker.js` — cek status + ambil `docker ps -a` / `ss -tulnp`
 - `src/scheduler/` — polling berkala
 - `src/routes/`, `src/views/` — web app (Express + EJS)
 - `data/sxops.sqlite` — database (server, hasil cek) — tidak di-commit
