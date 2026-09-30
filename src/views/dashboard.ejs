@@ -2,6 +2,7 @@
   <header>
     <a href="/">sxops</a>
     <div>
+      <a href="/groups" class="server-link" style="margin-right: 1rem;">Master Group</a>
       <span class="meta"><%= username %></span>
       <form class="inline" method="post" action="/logout">
         <button type="submit">Keluar</button>
@@ -10,58 +11,43 @@
   </header>
   <main>
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h1>Status Server</h1>
+      <h1>Status Client</h1>
       <div>
         <span class="meta" id="refresh-indicator"></span>
         <button type="button" onclick="location.reload()">Refresh</button>
-        <a class="server-link" href="/servers/new"><button type="button">+ Tambah Server</button></a>
+        <a class="server-link" href="/clients/new"><button type="button">+ Tambah Client</button></a>
       </div>
     </div>
 
-    <% if (servers.length === 0) { %>
-      <p class="meta">Belum ada server terdaftar. <a class="server-link" href="/servers/new">Tambah server pertama</a>.</p>
+    <% const groupNames = Object.keys(grouped); %>
+    <% if (groupNames.length === 0) { %>
+      <p class="meta">Belum ada client terdaftar. <a class="server-link" href="/clients/new">Tambah client pertama</a>.</p>
     <% } %>
 
-    <%
-      const groups = {};
-      for (const s of servers) {
-        groups[s.group] = groups[s.group] || [];
-        groups[s.group].push(s);
-      }
-    %>
-    <% for (const groupName of Object.keys(groups)) { %>
+    <% for (const groupName of groupNames) { %>
       <div class="group-label"><%= groupName %></div>
       <table>
         <thead>
           <tr>
-            <th>Server</th>
-            <th>Host</th>
+            <th>Client</th>
+            <th>Hostname</th>
             <th>Status</th>
-            <th>Latency</th>
             <th>RAM</th>
             <th>Disk</th>
-            <th>Cek terakhir</th>
+            <th>Terakhir terlihat</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <% for (const s of groups[groupName]) { %>
-            <% const status = s.lastCheck ? s.lastCheck.status : 'unknown'; %>
+          <% for (const c of grouped[groupName]) { %>
             <tr>
-              <td>
-                <span style="padding-left: <%= s.depth * 1.5 %>em;">
-                  <% if (s.depth > 0) { %><span class="meta">&#8627; </span><% } %>
-                  <a class="server-link" href="/server/<%= s.id %>"><%= s.name %></a>
-                </span>
-                <% if (s.viaName) { %><div class="meta" style="padding-left: <%= s.depth * 1.5 %>em;">via <%= s.viaName %></div><% } %>
-              </td>
-              <td><%= s.host %>:<%= s.port %></td>
-              <td><span class="badge badge-<%= status %>"><%= status.toUpperCase() %></span></td>
-              <td><%= s.lastCheck && s.lastCheck.latency_ms != null ? s.lastCheck.latency_ms + ' ms' : '-' %></td>
-              <td><%- include('partials/usage-bar', { percent: s.resources ? s.resources.memPercent : null }) %></td>
-              <td><%- include('partials/usage-bar', { percent: s.resources ? s.resources.diskPercent : null }) %></td>
-              <td class="meta"><%= s.lastCheck ? s.lastCheck.checked_at : 'belum pernah dicek' %></td>
-              <td><a class="server-link" href="/servers/<%= s.id %>/edit">edit</a></td>
+              <td><a class="server-link" href="/client/<%= c.id %>"><%= c.name %></a></td>
+              <td class="meta"><%= c.hostname || '-' %></td>
+              <td><span class="badge badge-<%= c.status %>"><%= c.status.toUpperCase() %></span></td>
+              <td><%- include('partials/usage-bar', { percent: c.metric ? c.metric.memPercent : null }) %></td>
+              <td><%- include('partials/usage-bar', { percent: c.metric ? c.metric.diskPercent : null }) %></td>
+              <td class="meta"><%= c.lastSeenAt || 'belum pernah connect' %></td>
+              <td><a class="server-link" href="/clients/<%= c.id %>/edit">edit</a></td>
             </tr>
           <% } %>
         </tbody>

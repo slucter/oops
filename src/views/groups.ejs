@@ -1,0 +1,55 @@
+<%- include('partials/layout-head', { title: 'Master Group - sxops' }) %>
+  <header>
+    <a href="/">sxops</a>
+  </header>
+  <main>
+    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
+    <h1>Master Group</h1>
+
+    <% if (error) { %>
+      <p class="error"><%= error %></p>
+    <% } %>
+
+    <form method="post" action="/groups" style="display:flex; gap:0.5rem; align-items:flex-end;">
+      <p style="flex:1; margin:0;">
+        <label>Nama grup baru</label>
+        <input type="text" name="name" required />
+      </p>
+      <p style="margin:0;">
+        <button type="submit">Tambah grup</button>
+      </p>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nama grup</th>
+          <th>Jumlah client</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (groups.length === 0) { %>
+          <tr><td colspan="3" class="meta">Belum ada grup.</td></tr>
+        <% } %>
+        <% for (const g of groups) { %>
+          <tr>
+            <td>
+              <form method="post" action="/groups/<%= g.id %>/edit" style="display:flex; gap:0.5rem;">
+                <input type="text" name="name" value="<%= g.name %>" style="width:auto;" />
+                <button type="submit">Simpan</button>
+              </form>
+            </td>
+            <td class="meta"><%= g.memberCount %></td>
+            <td>
+              <form method="post" action="/groups/<%= g.id %>/delete" onsubmit="return confirm('Hapus grup ini? Client di dalamnya akan jadi \'Belum dikelompokkan\', bukan ikut terhapus.');">
+                <button type="submit" style="background:#7f1d1d;">Hapus</button>
+              </form>
+            </td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

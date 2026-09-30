@@ -1,0 +1,215 @@
+<%- include('partials/layout-head', { title: item.name + ' - sxops' }) %>
+  <header>
+    <a href="/">sxops</a>
+    <div>
+      <span class="meta"><%= username %></span>
+      <form class="inline" method="post" action="/logout">
+        <button type="submit">Keluar</button>
+      </form>
+    </div>
+  </header>
+  <main>
+    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
+    <h1><%= item.name %> <a class="server-link" style="font-size:0.6em;" href="/clients/<%= item.id %>/edit">edit</a></h1>
+    <p class="meta">
+      <%= item.hostname || 'hostname belum diketahui' %>
+      <% if (item.groupName) { %> · <%= item.groupName %><% } %>
+    </p>
+
+    <p><span class="badge badge-<%= item.status %>"><%= item.status.toUpperCase() %></span></p>
+    <p class="meta">Terakhir terlihat: <%= item.lastSeenAt || 'belum pernah connect' %></p>
+
+    <% if (item.metric) { %>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="label">RAM</div>
+          <div class="value"><%- include('partials/usage-bar', { percent: item.metric.memPercent }) %></div>
+          <% if (item.metric.mem_total_mb != null) { %>
+            <div class="sub"><%= (item.metric.mem_used_mb / 1024).toFixed(1) %> GB / <%= (item.metric.mem_total_mb / 1024).toFixed(1) %> GB</div>
+          <% } %>
+        </div>
+        <div class="stat-card">
+          <div class="label">Disk (/)</div>
+          <div class="value"><%- include('partials/usage-bar', { percent: item.metric.diskPercent }) %></div>
+          <% if (item.metric.disk_total_gb != null) { %>
+            <div class="sub"><%= item.metric.disk_used_gb %> GB / <%= item.metric.disk_total_gb %> GB</div>
+          <% } %>
+        </div>
+        <div class="stat-card">
+          <div class="label">CPU Load (1m / 5m / 15m)</div>
+          <div class="value"><%= item.metric.load_1m != null ? item.metric.load_1m : '-' %></div>
+          <div class="sub">
+            <%= item.metric.load_5m != null ? item.metric.load_5m : '-' %> /
+            <%= item.metric.load_15m != null ? item.metric.load_15m : '-' %>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Uptime</div>
+          <div class="value" style="font-size: 1rem;"><%= formatUptime(item.metric.uptime_seconds) %></div>
+        </div>
+      </div>
+      <p class="meta">Diterima: <%= item.metric.received_at %></p>
+    <% } else { %>
+      <p class="meta">Belum ada data metrik masuk dari client ini.</p>
+    <% } %>
+
+    <h2>RAM &amp; CPU Load</h2>
+    <% if (item.metricHistory.length === 0) { %>
+      <p class="meta">Belum ada data.</p>
+    <% } else { %>
+      <div style="background:#161922; border-radius:6px; padding:1rem;">
+        <canvas id="resource-chart" height="80"></canvas>
+      </div>
+    <% } %>
+
+    <h2>Docker (docker ps -a)</h2>
+    <p>
+      <button type="button" onclick="refreshCommand('docker_ps', 'docker-output')">Refresh Docker</button>
+    </p>
+    <div id="docker-output">
+      <% if (item.dockerResult && item.dockerResult.output) { %>
+        <p class="meta">Diambil: <%= item.dockerResult.requested_at %></p>
+        <pre><%= item.dockerResult.output %></pre>
+      <% } else if (item.dockerResult && item.dockerResult.error_message) { %>
+        <p class="error"><%= item.dockerResult.error_message %></p>
+      <% } else { %>
+        <p class="meta">Belum ada data. Klik "Refresh Docker" untuk mengambil sekarang.</p>
+      <% } %>
+    </div>
+
+    <h2>Port listen (ss -tulnp)</h2>
+    <p>
+      <button type="button" onclick="refreshCommand('port_listen', 'port-output')">Refresh Port</button>
+    </p>
+    <div id="port-output">
+      <% if (item.portResult && item.portResult.output) { %>
+        <p class="meta">Diambil: <%= item.portResult.requested_at %></p>
+        <pre><%= item.portResult.output %></pre>
+      <% } else if (item.portResult && item.portResult.error_message) { %>
+        <p class="error"><%= item.portResult.error_message %></p>
+      <% } else { %>
+        <p class="meta">Belum ada data. Klik "Refresh Port" untuk mengambil sekarang.</p>
+      <% } %>
+    </div>
+
+    <h2>Riwayat status</h2>
+    <% if (item.history.length === 0) { %>
+      <p class="meta">Belum ada perubahan status tercatat.</p>
+    <% } else { %>
+      <table>
+        <thead>
+          <tr><th>Waktu</th><th>Dari</th><th>Ke</th></tr>
+        </thead>
+        <tbody>
+          <% for (const h of item.history) { %>
+            <tr>
+              <td><%= h.changed_at %></td>
+              <td><%= h.from_status || '-' %></td>
+              <td><span class="badge badge-<%= h.to_status %>"><%= h.to_status.toUpperCase() %></span></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    <% } %>
+  </main>
+
+  <script>
+    async function refreshCommand(command, outputElId) {
+      const el = document.getElementById(outputElId);
+      el.innerHTML = '<p class="meta">Menunggu balasan dari item...</p>';
+      try {
+        const res = await fetch('/clients/<%= item.id %>/command/' + command, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          el.innerHTML = '<p class="error">' + escapeHtml(data.error || 'Gagal.') + '</p>';
+          return;
+        }
+        if (data.errorMessage) {
+          el.innerHTML = '<p class="error">' + escapeHtml(data.errorMessage) + '</p>';
+        } else {
+          el.innerHTML = '<pre>' + escapeHtml(data.output || '') + '</pre>';
+        }
+      } catch (err) {
+        el.innerHTML = '<p class="error">' + escapeHtml(err.message) + '</p>';
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+
+  <% if (item.metricHistory.length > 0) { %>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+      const resourceData = <%- JSON.stringify(item.metricHistory) %>;
+
+      const resLabels = resourceData.map((d) => d.received_at);
+      const memPercentData = resourceData.map((d) =>
+        d.mem_total_mb ? Math.round((d.mem_used_mb / d.mem_total_mb) * 100) : null
+      );
+      const loadData = resourceData.map((d) => d.load_1m);
+
+      new Chart(document.getElementById('resource-chart'), {
+        type: 'line',
+        data: {
+          labels: resLabels,
+          datasets: [
+            {
+              label: 'RAM (%)',
+              data: memPercentData,
+              borderColor: '#7dd3fc',
+              backgroundColor: 'rgba(125, 211, 252, 0.1)',
+              yAxisID: 'yPercent',
+              tension: 0.25,
+              pointRadius: 2,
+              fill: true,
+            },
+            {
+              label: 'CPU load (1m)',
+              data: loadData,
+              borderColor: '#facc15',
+              backgroundColor: 'rgba(250, 204, 21, 0.1)',
+              yAxisID: 'yLoad',
+              tension: 0.25,
+              pointRadius: 2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: {
+              ticks: { color: '#9aa0ac', maxTicksLimit: 8 },
+              grid: { color: '#262a36' },
+            },
+            yPercent: {
+              type: 'linear',
+              position: 'left',
+              min: 0,
+              max: 100,
+              ticks: { color: '#9aa0ac' },
+              grid: { color: '#262a36' },
+              title: { display: true, text: 'RAM %', color: '#9aa0ac' },
+            },
+            yLoad: {
+              type: 'linear',
+              position: 'right',
+              beginAtZero: true,
+              ticks: { color: '#9aa0ac' },
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: 'load', color: '#9aa0ac' },
+            },
+          },
+          plugins: {
+            legend: { labels: { color: '#e6e6e6' } },
+          },
+        },
+      });
+    </script>
+  <% } %>
+</body>
+</html>

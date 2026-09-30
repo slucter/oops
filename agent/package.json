@@ -1,0 +1,10 @@
+{
+  "name": "sxops-agent",
+  "version": "1.0.0",
+  "description": "Agent client sxops - konek ke server monitoring via WebSocket",
+  "private": true,
+  "main": "agent.js",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

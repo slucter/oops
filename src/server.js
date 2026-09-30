@@ -7,8 +7,10 @@ const session = require('express-session');
 const requireAuth = require('./middleware/requireAuth');
 const authRoutes = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
-const serverRoutes = require('./routes/servers');
-const scheduler = require('./scheduler');
+const clientRoutes = require('./routes/clients');
+const groupRoutes = require('./routes/groups');
+const installRoutes = require('./routes/install');
+const wsServer = require('./ws/server');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,9 +35,14 @@ app.use(
   })
 );
 
+// install.sh + file agent publik (tanpa login) — dipanggil lewat curl dari server client.
+app.use(installRoutes);
+app.use('/agent-files', express.static(path.join(__dirname, '..', 'agent'), { dotfiles: 'ignore', index: false }));
+
 app.use(authRoutes);
 app.use(requireAuth, dashboardRoutes);
-app.use(requireAuth, serverRoutes);
+app.use(requireAuth, clientRoutes);
+app.use(requireAuth, groupRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
@@ -43,7 +50,9 @@ app.use((err, req, res, next) => {
   res.status(500).send('Terjadi kesalahan internal.');
 });
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   console.log(`[server] sxops dashboard jalan di http://localhost:${PORT}`);
-  scheduler.start();
 });
+
+wsServer.attach(httpServer);
+console.log('[server] WebSocket server siap di /agent');

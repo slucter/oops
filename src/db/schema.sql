@@ -5,49 +5,29 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS servers (
+CREATE TABLE IF NOT EXISTS groups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  group_name TEXT NOT NULL DEFAULT 'lainnya',
-  host TEXT NOT NULL,
-  port INTEGER NOT NULL DEFAULT 22,
-  user TEXT NOT NULL,
-  via_server_id INTEGER REFERENCES servers(id) ON DELETE SET NULL,
+  name TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS check_results (
+CREATE TABLE IF NOT EXISTS clients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-  checked_at TEXT NOT NULL DEFAULT (datetime('now')),
-  status TEXT NOT NULL CHECK (status IN ('up', 'down', 'unreachable')),
-  latency_ms INTEGER,
-  error_message TEXT
+  name TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'up', 'down')),
+  hostname TEXT,
+  last_seen_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_check_results_server ON check_results (server_id, checked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clients_token ON clients (token);
+CREATE INDEX IF NOT EXISTS idx_clients_group ON clients (group_id);
 
-CREATE TABLE IF NOT EXISTS docker_snapshots (
+CREATE TABLE IF NOT EXISTS client_metrics (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-  checked_at TEXT NOT NULL DEFAULT (datetime('now')),
-  raw_output TEXT,
-  error_message TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_docker_snapshots_server ON docker_snapshots (server_id, checked_at DESC);
-
-CREATE TABLE IF NOT EXISTS port_snapshots (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-  checked_at TEXT NOT NULL DEFAULT (datetime('now')),
-  raw_output TEXT,
-  error_message TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_port_snapshots_server ON port_snapshots (server_id, checked_at DESC);
-
-CREATE TABLE IF NOT EXISTS resource_snapshots (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-  checked_at TEXT NOT NULL DEFAULT (datetime('now')),
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
   mem_total_mb INTEGER,
   mem_used_mb INTEGER,
   disk_total_gb REAL,
@@ -55,17 +35,25 @@ CREATE TABLE IF NOT EXISTS resource_snapshots (
   load_1m REAL,
   load_5m REAL,
   load_15m REAL,
-  uptime_text TEXT,
-  cpu_count INTEGER,
-  error_message TEXT
+  uptime_seconds INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_resource_snapshots_server ON resource_snapshots (server_id, checked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_metrics_client ON client_metrics (client_id, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS client_command_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  command TEXT NOT NULL CHECK (command IN ('docker_ps', 'port_listen')),
+  requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+  output TEXT,
+  error_message TEXT,
+  UNIQUE (client_id, command)
+);
 
 CREATE TABLE IF NOT EXISTS status_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   from_status TEXT,
   to_status TEXT NOT NULL,
   changed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_status_history_server ON status_history (server_id, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_status_history_client ON status_history (client_id, changed_at DESC);

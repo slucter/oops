@@ -1,0 +1,66 @@
+<%- include('partials/layout-head', { title: (item ? 'Edit' : 'Tambah') + ' Client - sxops' }) %>
+  <header>
+    <a href="/">sxops</a>
+  </header>
+  <main>
+    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
+    <h1><%= item ? 'Edit Client: ' + item.name : 'Tambah Client' %></h1>
+
+    <% if (error) { %>
+      <p class="error"><%= error %></p>
+    <% } %>
+
+    <form method="post" action="<%= item ? '/clients/' + item.id + '/edit' : '/clients' %>">
+      <p>
+        <label>Nama client</label>
+        <input type="text" name="name" required value="<%= item ? item.name : '' %>" />
+      </p>
+      <p>
+        <label>Grup</label>
+        <select name="group_id">
+          <option value="">(belum dikelompokkan)</option>
+          <% for (const g of groups) { %>
+            <option value="<%= g.id %>" <%= item && item.groupId === g.id ? 'selected' : '' %>><%= g.name %></option>
+          <% } %>
+        </select>
+      </p>
+      <p>
+        <button type="submit"><%= item ? 'Simpan perubahan' : 'Tambah client' %></button>
+      </p>
+    </form>
+
+    <% if (installCommand) { %>
+      <h2>Command instalasi</h2>
+      <p class="meta">
+        Jalankan satu baris ini di server yang mau dipantau (sebagai user biasa,
+        tidak perlu root). Agent akan otomatis konek ke dashboard ini dan mulai
+        mengirim data.
+      </p>
+      <div class="code-box" id="install-command"><%= installCommand %></div>
+      <p>
+        <button type="button" onclick="copyInstallCommand()">Salin command</button>
+      </p>
+      <p class="meta">
+        Status client: <span class="badge badge-<%= item.status %>"><%= item.status.toUpperCase() %></span>
+        <% if (item.status === 'pending') { %> — menunggu client pertama kali connect.<% } %>
+      </p>
+    <% } %>
+
+    <% if (item) { %>
+      <h2>Zona berbahaya</h2>
+      <form method="post" action="/clients/<%= item.id %>/regenerate-token" onsubmit="return confirm('Token lama akan berhenti bekerja dan client yang sudah terpasang perlu diinstal ulang dengan command baru. Lanjutkan?');">
+        <button type="submit">Buat ulang token</button>
+      </form>
+      <form method="post" action="/clients/<%= item.id %>/delete" onsubmit="return confirm('Hapus client ini dari daftar? Data historisnya ikut terhapus.');">
+        <button type="submit" style="background:#7f1d1d;">Hapus client</button>
+      </form>
+    <% } %>
+  </main>
+  <script>
+    function copyInstallCommand() {
+      const text = document.getElementById('install-command').textContent;
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+  </script>
+</body>
+</html>
