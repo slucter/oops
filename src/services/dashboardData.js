@@ -33,6 +33,16 @@ const getHistory = db.prepare(`
   LIMIT 20
 `);
 
+const LATENCY_POINTS = 100;
+
+const getLatencyHistoryDesc = db.prepare(`
+  SELECT checked_at, status, latency_ms
+  FROM check_results
+  WHERE server_id = ?
+  ORDER BY checked_at DESC
+  LIMIT ?
+`);
+
 function getDashboardServers() {
   const servers = listServers();
   const byId = new Map(servers.map((s) => [s.id, s]));
@@ -101,6 +111,7 @@ function getServerDetail(serverId) {
     docker: getLatestDockerSnapshot.get(id) || null,
     ports: getLatestPortSnapshot.get(id) || null,
     history: getHistory.all(id),
+    latencyHistory: getLatencyHistoryDesc.all(id, LATENCY_POINTS).reverse(),
   };
 }
 

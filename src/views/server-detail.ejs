@@ -22,6 +22,15 @@
       <p class="error"><%= server.lastCheck.error_message %></p>
     <% } %>
 
+    <h2>Latency</h2>
+    <% if (server.latencyHistory.length === 0) { %>
+      <p class="meta">Belum ada data.</p>
+    <% } else { %>
+      <div style="background:#161922; border-radius:6px; padding:1rem;">
+        <canvas id="latency-chart" height="80"></canvas>
+      </div>
+    <% } %>
+
     <% if (server.docker) { %>
       <h2>Docker (docker ps -a)</h2>
       <% if (server.docker.raw_output) { %>
@@ -62,5 +71,63 @@
       </table>
     <% } %>
   </main>
+
+  <% if (server.latencyHistory.length > 0) { %>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+      const latencyData = <%- JSON.stringify(server.latencyHistory) %>;
+
+      const labels = latencyData.map((d) => d.checked_at);
+      const points = latencyData.map((d) => (d.status === 'up' ? d.latency_ms : null));
+      const downPoints = latencyData.map((d) => (d.status !== 'up' ? 0 : null));
+
+      new Chart(document.getElementById('latency-chart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Latency (ms)',
+              data: points,
+              borderColor: '#4ade80',
+              backgroundColor: 'rgba(74, 222, 128, 0.1)',
+              spanGaps: false,
+              tension: 0.25,
+              pointRadius: 2,
+              fill: true,
+            },
+            {
+              label: 'Down/unreachable',
+              data: downPoints,
+              borderColor: '#f87171',
+              backgroundColor: '#f87171',
+              pointRadius: 4,
+              pointStyle: 'crossRot',
+              showLine: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: {
+              ticks: { color: '#9aa0ac', maxTicksLimit: 8 },
+              grid: { color: '#262a36' },
+            },
+            y: {
+              beginAtZero: true,
+              ticks: { color: '#9aa0ac' },
+              grid: { color: '#262a36' },
+              title: { display: true, text: 'ms', color: '#9aa0ac' },
+            },
+          },
+          plugins: {
+            legend: { labels: { color: '#e6e6e6' } },
+          },
+        },
+      });
+    </script>
+  <% } %>
 </body>
 </html>
