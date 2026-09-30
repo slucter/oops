@@ -3,10 +3,6 @@ const serverStore = require('../services/serverStore');
 
 const router = express.Router();
 
-function parseHasDocker(body) {
-  return body.has_docker === 'on' || body.has_docker === 'true';
-}
-
 function parseViaServerId(body) {
   if (!body.via_server_id) return null;
   const n = Number(body.via_server_id);
@@ -39,7 +35,6 @@ router.post('/servers', (req, res) => {
       port: Number(req.body.port) || 22,
       user: req.body.user,
       viaServerId: parseViaServerId(req.body),
-      hasDocker: parseHasDocker(req.body),
     });
     res.redirect('/');
   } catch (err) {
@@ -72,7 +67,6 @@ router.post('/servers/:id/edit', (req, res) => {
       port: Number(req.body.port) || 22,
       user: req.body.user,
       viaServerId: parseViaServerId(req.body),
-      hasDocker: parseHasDocker(req.body),
     });
     res.redirect('/');
   } catch (err) {

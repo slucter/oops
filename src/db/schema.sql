@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS servers (
   port INTEGER NOT NULL DEFAULT 22,
   user TEXT NOT NULL,
   via_server_id INTEGER REFERENCES servers(id) ON DELETE SET NULL,
-  has_docker INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -68,8 +68,14 @@ async function collectServerInfo(server, handle) {
   const portResult = await execCommand(handle, 'ss -tulnp');
   savePortSnapshot(server.id, portResult);
 
-  if (server.hasDocker) {
-    const dockerResult = await execCommand(handle, 'docker ps -a');
+  // Docker dideteksi otomatis, bukan lewat konfigurasi manual: exit code
+  // 127 dari shell berarti command "docker" tidak ditemukan sama sekali
+  // (server tidak punya Docker) — dalam kasus itu snapshot tidak disimpan
+  // supaya halaman detail tidak menampilkan section Docker sama sekali.
+  // Kegagalan lain (mis. daemon mati, permission denied) tetap disimpan
+  // sebagai error, karena itu berarti Docker ADA tapi bermasalah.
+  const dockerResult = await execCommand(handle, 'docker ps -a');
+  if (dockerResult.code !== 127) {
     saveDockerSnapshot(server.id, dockerResult);
   }
 }

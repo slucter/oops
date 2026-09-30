@@ -22,15 +22,13 @@
       <p class="error"><%= server.lastCheck.error_message %></p>
     <% } %>
 
-    <% if (server.hasDocker) { %>
+    <% if (server.docker) { %>
       <h2>Docker (docker ps -a)</h2>
-      <% if (server.docker && server.docker.raw_output) { %>
+      <% if (server.docker.raw_output) { %>
         <p class="meta">Diambil: <%= server.docker.checked_at %></p>
         <pre><%= server.docker.raw_output %></pre>
-      <% } else if (server.docker && server.docker.error_message) { %>
+      <% } else if (server.docker.error_message) { %>
         <p class="error"><%= server.docker.error_message %></p>
-      <% } else { %>
-        <p class="meta">Belum ada data.</p>
       <% } %>
     <% } %>
 

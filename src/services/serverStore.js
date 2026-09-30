@@ -1,14 +1,14 @@
 const db = require('../db');
 
 const insertServer = db.prepare(`
-  INSERT INTO servers (name, group_name, host, port, user, via_server_id, has_docker)
-  VALUES (@name, @groupName, @host, @port, @user, @viaServerId, @hasDocker)
+  INSERT INTO servers (name, group_name, host, port, user, via_server_id)
+  VALUES (@name, @groupName, @host, @port, @user, @viaServerId)
 `);
 
 const updateServerStmt = db.prepare(`
   UPDATE servers
   SET name = @name, group_name = @groupName, host = @host, port = @port,
-      user = @user, via_server_id = @viaServerId, has_docker = @hasDocker
+      user = @user, via_server_id = @viaServerId
   WHERE id = @id
 `);
 
@@ -27,7 +27,6 @@ function mapRow(row) {
     port: row.port,
     user: row.user,
     via: row.via_server_id,
-    hasDocker: !!row.has_docker,
     createdAt: row.created_at,
   };
 }
@@ -71,7 +70,7 @@ function validateInput({ id, name, host, user, viaServerId }) {
   }
 }
 
-function createServer({ name, groupName, host, port, user, viaServerId, hasDocker }) {
+function createServer({ name, groupName, host, port, user, viaServerId }) {
   validateInput({ id: null, name, host, user, viaServerId });
   const info = insertServer.run({
     name: name.trim(),
@@ -80,12 +79,11 @@ function createServer({ name, groupName, host, port, user, viaServerId, hasDocke
     port: port || 22,
     user: user.trim(),
     viaServerId: viaServerId || null,
-    hasDocker: hasDocker ? 1 : 0,
   });
   return getServerById(info.lastInsertRowid);
 }
 
-function updateServer(id, { name, groupName, host, port, user, viaServerId, hasDocker }) {
+function updateServer(id, { name, groupName, host, port, user, viaServerId }) {
   const existing = getByIdStmt.get(id);
   if (!existing) throw new Error('Server tidak ditemukan.');
   validateInput({ id, name, host, user, viaServerId });
@@ -98,7 +96,6 @@ function updateServer(id, { name, groupName, host, port, user, viaServerId, hasD
     port: port || 22,
     user: user.trim(),
     viaServerId: viaServerId || null,
-    hasDocker: hasDocker ? 1 : 0,
   });
   return getServerById(id);
 }

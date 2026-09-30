@@ -13,7 +13,10 @@
     <p class="meta">
       Private key tidak perlu diupload — app otomatis mencoba key yang ada
       di <code>~/.ssh/</code> pada server tempat app ini berjalan, sama
-      seperti perintah <code>ssh</code> biasa.
+      seperti perintah <code>ssh</code> biasa. Docker juga dideteksi
+      otomatis — kalau server ini punya Docker, halaman detailnya akan
+      menampilkan <code>docker ps -a</code>; kalau tidak, section itu
+      tidak akan muncul.
     </p>
 
     <form method="post" action="<%= server ? '/servers/' + server.id + '/edit' : '/servers' %>">
@@ -45,12 +48,6 @@
             <option value="<%= s.id %>" <%= server && server.via === s.id ? 'selected' : '' %>><%= s.name %></option>
           <% } %>
         </select>
-      </p>
-      <p>
-        <label>
-          <input type="checkbox" name="has_docker" <%= server && server.hasDocker ? 'checked' : '' %> style="width:auto" />
-          Ada Docker di server ini
-        </label>
       </p>
       <p>
         <button type="submit"><%= server ? 'Simpan perubahan' : 'Tambah server' %></button>
