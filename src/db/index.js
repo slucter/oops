@@ -30,5 +30,9 @@ addColumnIfMissing('client_metrics', 'latency_ms', 'INTEGER');
 addColumnIfMissing('clients', 'private_ip', 'TEXT');
 addColumnIfMissing('clients', 'public_ip', 'TEXT');
 addColumnIfMissing('client_metrics', 'cpu_count', 'INTEGER');
+// Versi agent yang jalan di client. NULL berarti agent lama yang belum
+// melaporkan versinya — dianggap perlu update.
+addColumnIfMissing('clients', 'agent_version', 'TEXT');
+addColumnIfMissing('clients', 'agent_updated_at', 'TEXT');
 
 module.exports = db;

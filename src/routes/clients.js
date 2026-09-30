@@ -2,6 +2,7 @@ const express = require('express');
 const clientStore = require('../services/clientStore');
 const groupStore = require('../services/groupStore');
 const wsServer = require('../ws/server');
+const agentVersion = require('../services/agentVersion');
 
 const router = express.Router();
 
@@ -35,6 +36,49 @@ router.post('/clients', (req, res) => {
   } catch (err) {
     res.status(400).render('client-form', { item: null, groups, error: err.message, installCommand: null });
   }
+});
+
+/**
+ * Update semua client yang tertinggal versi, sekaligus.
+ *
+ * Dijalankan berurutan, bukan paralel: kalau ada versi agent yang rusak,
+ * kegagalan pertama menghentikan sisanya, sehingga yang terlanjur rusak
+ * hanya satu client — bukan semuanya sekaligus. Client yang sedang tidak
+ * terkoneksi dilewati (bukan dianggap gagal); ia akan ditawari update lagi
+ * begitu terhubung kembali.
+ *
+ * Didaftarkan SEBELUM route `/clients/:id/...` dengan sengaja, supaya
+ * "update-agent-all" tidak pernah ada kemungkinan tertangkap sebagai `:id`.
+ */
+router.post('/clients/update-agent-all', async (req, res) => {
+  const targets = clientStore.listClients()
+    .filter((c) => agentVersion.needsUpdate(c) && wsServer.isClientConnected(c.id));
+
+  const results = [];
+  for (const client of targets) {
+    try {
+      const r = await wsServer.requestAgentUpdate(client.id);
+      results.push({ id: client.id, name: client.name, ok: r.ok, message: r.message });
+      if (!r.ok) break;
+    } catch (err) {
+      results.push({ id: client.id, name: client.name, ok: false, message: err.message });
+      break;
+    }
+  }
+
+  const berhasil = results.filter((r) => r.ok).length;
+  const gagal = results.find((r) => !r.ok);
+
+  res.json({
+    ok: !gagal,
+    total: targets.length,
+    berhasil,
+    message: gagal
+      ? `${berhasil} dari ${targets.length} berhasil. Berhenti di "${gagal.name}": ${gagal.message}`
+      : targets.length === 0
+        ? 'Tidak ada client terkoneksi yang perlu di-update.'
+        : `${berhasil} client berhasil di-update.`,
+  });
 });
 
 router.get('/clients/:id/edit', (req, res) => {
@@ -104,6 +148,23 @@ router.post('/clients/:id/command/:command', async (req, res) => {
   try {
     const result = await wsServer.requestCommand(id, command);
     res.json({ ok: true, output: result.output, errorMessage: result.errorMessage });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+/** Minta satu agent memperbarui dirinya (AJAX). */
+router.post('/clients/:id/update-agent', async (req, res) => {
+  const id = Number(req.params.id);
+  const client = clientStore.getClientById(id);
+  if (!client) return res.status(404).json({ error: 'Client tidak ditemukan.' });
+
+  try {
+    const result = await wsServer.requestAgentUpdate(id);
+    if (!result.ok) {
+      return res.status(502).json({ error: result.message || 'Agent melaporkan update gagal.' });
+    }
+    res.json({ ok: true, message: result.message || 'Update diterapkan.' });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

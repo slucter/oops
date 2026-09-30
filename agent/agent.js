@@ -15,6 +15,7 @@ const os = require('os');
 const https = require('https');
 const { execSync } = require('child_process');
 const { RESOURCE_COMMAND, parseResourceOutput } = require('./resourceParser');
+const { AGENT_VERSION } = require('./version');
 
 const SERVER_URL = process.env.OOPS_SERVER_URL;
 const TOKEN = process.env.OOPS_TOKEN;
@@ -70,6 +71,10 @@ function connect() {
     }
     if (msg.type === 'command' && msg.id && msg.command) {
       handleCommand(msg.id, msg.command);
+      return;
+    }
+    if (msg.type === 'update_agent' && msg.id) {
+      handleSelfUpdate(msg.id);
     }
   });
 
@@ -120,6 +125,7 @@ function sendMetric() {
       hostname,
       privateIp: getPrivateIp(),
       publicIp: publicIpCache,
+      agentVersion: AGENT_VERSION,
     }));
   } catch (err) {
     console.error('[agent] gagal kirim metric:', err.message);
@@ -196,6 +202,123 @@ function handleCommand(id, command) {
   } catch (err) {
     const errorMessage = err.stderr ? err.stderr.toString() : err.message;
     ws.send(JSON.stringify({ type: 'command_result', id, command, output: null, errorMessage }));
+  }
+}
+
+const SERVICE_NAME = process.env.OOPS_SERVICE_NAME || 'oops-agent';
+
+/** Bungkus argumen untuk shell — URL/path tidak pernah jadi perintah. */
+function shellEscape(s) {
+  return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Perbarui agent ini sendiri: unduh ulang berkas dari server monitoring,
+ * lalu minta systemd me-restart service supaya kode baru yang jalan.
+ *
+ * Tiga hal yang membuat ini tidak sesederhana "curl lalu restart":
+ *
+ * 1. **Unduh ke lokasi sementara dulu.** Kalau menimpa agent.js langsung
+ *    lalu koneksi putus di tengah, yang tersisa adalah berkas terpotong dan
+ *    agent tidak akan pernah hidup lagi — client hilang dari monitoring
+ *    secara permanen, justru gara-gara mencoba update. Berkas baru hanya
+ *    dipindahkan ke tempatnya setelah semuanya selesai terunduh.
+ *
+ * 2. **Simpan cadangan versi lama** sebagai `.bak`, supaya kalau kode baru
+ *    gagal start masih ada yang bisa dikembalikan secara manual.
+ *
+ * 3. **Balas SEBELUM restart.** Proses ini akan dimatikan systemd beberapa
+ *    saat lagi; kalau balasan dikirim setelah perintah restart, dashboard
+ *    tidak akan pernah menerimanya dan update yang sebenarnya berhasil
+ *    terlihat seperti timeout.
+ */
+function handleSelfUpdate(id) {
+  const fs = require('fs');
+  const path = require('path');
+  const dir = __dirname;
+
+  // Berkas yang membentuk agent. Kalau nanti ada modul baru di folder
+  // agent/, tambahkan di sini — kalau tidak, update menghasilkan campuran
+  // berkas baru dan lama yang bisa saling tidak cocok.
+  const FILES = ['agent.js', 'resourceParser.js', 'version.js', 'package.json'];
+
+  const reply = (ok, message) => {
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_result', id, ok, message, version: AGENT_VERSION }));
+      }
+    } catch {
+      // koneksi sudah tidak bisa dipakai; restart di bawah tetap jalan
+    }
+  };
+
+  console.log('[agent] menerima perintah update, mengunduh berkas baru...');
+  const tmpDir = path.join(dir, '.update-tmp');
+
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    for (const name of FILES) {
+      const url = new URL(`/agent-files/${name}`, SERVER_URL).toString();
+      // Lewat curl, bukan https.get, supaya perilaku redirect, proxy, dan
+      // sertifikat sama persis dengan yang dipakai install.sh — kalau curl
+      // bisa menjangkau server saat instalasi, ia juga bisa di sini.
+      execSync(`curl -fsSL --max-time 30 ${shellEscape(url)} -o ${shellEscape(path.join(tmpDir, name))}`, {
+        timeout: 40000,
+        stdio: 'pipe',
+      });
+      if (fs.statSync(path.join(tmpDir, name)).size === 0) {
+        throw new Error(`berkas ${name} kosong`);
+      }
+    }
+
+    // Semua berkas sudah lengkap di tmp. Baru sekarang menyentuh yang asli.
+    for (const name of FILES) {
+      const target = path.join(dir, name);
+      if (fs.existsSync(target)) fs.copyFileSync(target, `${target}.bak`);
+      fs.renameSync(path.join(tmpDir, name), target);
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+
+    // Dependensi bisa berubah antar versi. Kegagalan di sini sengaja tidak
+    // membatalkan update: kalau node_modules lama masih memenuhi kebutuhan,
+    // agent tetap bisa jalan — lebih baik daripada menggagalkan update yang
+    // berkasnya sudah terpasang.
+    try {
+      execSync('npm install --production --silent --no-audit --no-fund', {
+        cwd: dir, timeout: 180000, stdio: 'pipe',
+      });
+    } catch (err) {
+      console.error('[agent] npm install gagal, lanjut dengan dependensi yang ada:', err.message);
+    }
+
+    console.log('[agent] berkas diperbarui, restart service...');
+    reply(true, 'Berkas agent diperbarui, service sedang restart.');
+
+    // Jeda supaya balasan di atas benar-benar terkirim lewat socket sebelum
+    // proses ini dimatikan.
+    setTimeout(() => {
+      try {
+        execSync(`systemctl --user restart ${shellEscape(SERVICE_NAME)}`, {
+          timeout: 20000,
+          stdio: 'pipe',
+          env: { ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}` },
+        });
+      } catch (err) {
+        // systemctl tidak bisa dipanggil (mis. agent dijalankan manual,
+        // bukan sebagai service). Keluar dengan kode error — kalau dia
+        // memang service, Restart=always yang menghidupkan kembali.
+        console.error('[agent] systemctl restart gagal, keluar supaya di-restart:', err.message);
+        process.exit(1);
+      }
+    }, 500);
+  } catch (err) {
+    console.error('[agent] update gagal:', err.message);
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* sudah bersih */ }
+    // Kalau gagal di tahap unduh, berkas asli belum tersentuh sama sekali —
+    // agent tetap jalan dengan versi lama, tidak ada yang perlu dipulihkan.
+    reply(false, `Update gagal: ${err.message}`);
   }
 }
 

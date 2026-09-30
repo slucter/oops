@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS clients (
   public_ip TEXT,
   last_seen_at TEXT,
   last_latency_ms INTEGER,
+  agent_version TEXT,
+  agent_updated_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_clients_token ON clients (token);

@@ -1,6 +1,7 @@
 const db = require('../db');
 const clientStore = require('./clientStore');
 const alertEngine = require('./alertEngine');
+const agentVersion = require('./agentVersion');
 
 const getLatestMetric = db.prepare(`
   SELECT received_at, mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
@@ -67,9 +68,16 @@ function getDashboardClients() {
       metric: withMetricPercent(getLatestMetric.get(c.id)),
       alerts,
       worstSeverity: worstOf(alerts),
+      needsUpdate: agentVersion.needsUpdate(c),
+      latestAgentVersion: agentVersion.LATEST_AGENT_VERSION,
     });
   }
   return grouped;
+}
+
+/** Berapa client yang tertinggal versi — untuk tombol "Update semua". */
+function countClientsNeedingUpdate() {
+  return clientStore.listClients().filter((c) => agentVersion.needsUpdate(c)).length;
 }
 
 /** Tingkat keparahan tertinggi dari daftar alert aktif. */
@@ -99,9 +107,11 @@ function getClientDetail(clientId) {
     history: getHistory.all(id),
     alerts: alertEngine.getActiveForClient(id),
     alertHistory: alertEngine.getRecentForClient(id),
+    needsUpdate: agentVersion.needsUpdate(client),
+    latestAgentVersion: agentVersion.LATEST_AGENT_VERSION,
     dockerResult: getCommandResult.get(id, 'docker_ps') || null,
     portResult: getCommandResult.get(id, 'port_listen') || null,
   };
 }
 
-module.exports = { getDashboardClients, getClientDetail };
+module.exports = { getDashboardClients, getClientDetail, countClientsNeedingUpdate };

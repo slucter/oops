@@ -690,6 +690,45 @@
     }
     .banner-alert .count { font-weight: 700; color: var(--danger); }
 
+    /* ================= VERSI AGENT ================= */
+    /* Biru-info, bukan merah/kuning: agent tertinggal versi adalah pekerjaan
+       rumah, bukan insiden. Warna alert disisakan untuk hal yang benar-benar
+       mendesak supaya tidak kehilangan makna. */
+    .banner-update {
+      display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+      padding: 0.7rem 0.95rem;
+      border: 1px solid rgba(86,184,212,.3);
+      border-left: 3px solid var(--info);
+      background: rgba(86,184,212,.07);
+      border-radius: 4px;
+      margin-bottom: 1.1rem;
+      font-size: 0.8rem;
+      color: #bcdde8;
+    }
+    .banner-update .count { font-weight: 700; color: var(--info); }
+    .banner-update b { color: var(--info); font-weight: 700; }
+    .update-status { color: var(--text-dim); font-size: 0.73rem; }
+
+    .agent-ver {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.1rem 0.45rem;
+      font-size: 0.66rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      cursor: help;
+    }
+    .agent-ok { color: var(--text-faint); }
+    .agent-old {
+      color: var(--info);
+      background: rgba(86,184,212,.1);
+      border-color: rgba(86,184,212,.3);
+    }
+
     /* ================= IP CHIP ================= */
     .ip-row { display: flex; gap: 0.55rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
     .ip-chip {

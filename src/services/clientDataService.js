@@ -22,7 +22,16 @@ const updateClientSeen = db.prepare(`
   SET status = 'up', hostname = @hostname, last_seen_at = datetime('now'),
       last_latency_ms = @latencyMs,
       private_ip = COALESCE(@privateIp, private_ip),
-      public_ip = COALESCE(@publicIp, public_ip)
+      public_ip = COALESCE(@publicIp, public_ip),
+      -- Sengaja TANPA COALESCE, berbeda dari IP di atas: agent versi lama
+      -- tidak mengirim field ini, dan justru ketiadaannya yang menandakan
+      -- ia perlu di-update. Kalau dipertahankan pakai COALESCE, agent yang
+      -- di-downgrade atau dipasang ulang dengan versi lama akan terus
+      -- tampil sebagai versi baru dan tidak pernah ditawari update.
+      agent_version = @agentVersion,
+      agent_updated_at = CASE
+        WHEN @agentVersion IS NOT NULL AND agent_version IS NOT @agentVersion
+          THEN datetime('now') ELSE agent_updated_at END
   WHERE id = @id
 `);
 
@@ -65,6 +74,7 @@ function recordMetric(clientId, payload) {
     latencyMs,
     privateIp: payload.privateIp || null,
     publicIp: payload.publicIp || null,
+    agentVersion: payload.agentVersion || null,
   });
   insertMetric.run({
     clientId,

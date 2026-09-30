@@ -38,6 +38,8 @@ function mapRow(row) {
     publicIp: row.public_ip,
     lastSeenAt: row.last_seen_at,
     lastLatencyMs: row.last_latency_ms,
+    agentVersion: row.agent_version || null,
+    agentUpdatedAt: row.agent_updated_at || null,
     createdAt: row.created_at,
   };
 }

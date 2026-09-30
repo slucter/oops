@@ -2,18 +2,24 @@ const { WebSocketServer } = require('ws');
 const { URL } = require('url');
 const clientStore = require('../services/clientStore');
 const clientDataService = require('../services/clientDataService');
-const { validateMetricPayload, validateCommandResultPayload } = require('../services/payloadValidator');
+const { validateMetricPayload, validateCommandResultPayload, validateUpdateResultPayload } = require('../services/payloadValidator');
 
 const MAX_MESSAGE_BYTES = 8 * 1024;
 const STALE_THRESHOLD_SECONDS = Number(process.env.CLIENT_STALE_SECONDS || 90);
 const STALE_CHECK_INTERVAL_MS = 15000;
 const COMMAND_TIMEOUT_MS = 10000;
+// Update melibatkan unduh berkas + npm install, jauh lebih lama daripada
+// command biasa. Timeout pendek akan melaporkan gagal padahal update masih
+// berjalan dan akan berhasil.
+const UPDATE_TIMEOUT_MS = Number(process.env.AGENT_UPDATE_TIMEOUT_MS || 240000);
 const PING_INTERVAL_MS = Number(process.env.CLIENT_PING_INTERVAL_MS || 15000);
 
 // clientId -> WebSocket, hanya untuk client yang sedang terkoneksi.
 const activeConnections = new Map();
 // requestId -> { resolve, reject, timer }, permintaan command yang menunggu balasan.
 const pendingCommands = new Map();
+// requestId -> { resolve, reject, timer }, permintaan update yang menunggu balasan.
+const pendingUpdates = new Map();
 // clientId -> latency RTT terakhir (ms) dari ping/pong WebSocket. Hanya di
 // memori: nilainya ikut disimpan ke DB saat payload metrik berikutnya masuk,
 // supaya tidak bikin baris/tabel sendiri untuk angka yang berubah terus.
@@ -81,6 +87,23 @@ function attach(httpServer) {
       clearInterval(pingTimer);
       activeConnections.delete(client.id);
       lastLatency.delete(client.id);
+
+      // Agent yang sedang update akan memutus koneksi saat me-restart
+      // dirinya. Itu justru tanda update berhasil — bukan kegagalan. Kalau
+      // tidak diselesaikan di sini, promise-nya menggantung sampai timeout
+      // 4 menit dan dashboard menampilkan "timeout" untuk update yang
+      // sebenarnya sukses.
+      for (const [id, pending] of pendingUpdates) {
+        if (!id.startsWith(`${client.id}-update-`)) continue;
+        clearTimeout(pending.timer);
+        pendingUpdates.delete(id);
+        pending.resolve({
+          id,
+          ok: true,
+          message: 'Agent memutus koneksi untuk restart — tanda update diterapkan.',
+          version: null,
+        });
+      }
       console.log(`[ws] client "${client.name}" (id=${client.id}) terputus`);
     });
 
@@ -144,7 +167,54 @@ function handleMessage(clientId, raw) {
     }
     return;
   }
+
+  if (msg.type === 'update_result') {
+    const result = validateUpdateResultPayload(msg);
+    if (!result.valid) {
+      console.warn(`[ws] payload update_result invalid dari client id=${clientId}: ${result.reason}`);
+      return;
+    }
+    const pending = pendingUpdates.get(result.data.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingUpdates.delete(result.data.id);
+      pending.resolve(result.data);
+    }
+    return;
+  }
   // type tidak dikenal: diabaikan diam-diam, bukan error keras.
+}
+
+/**
+ * Minta agent memperbarui dirinya sendiri.
+ *
+ * Timeout dibuat jauh lebih panjang daripada command biasa: agent harus
+ * mengunduh beberapa berkas lalu menjalankan `npm install`, yang di koneksi
+ * lambat bisa memakan waktu lama. Timeout pendek akan melaporkan gagal
+ * padahal update sebenarnya sedang berjalan dan akan berhasil.
+ */
+function requestAgentUpdate(clientId) {
+  const ws = activeConnections.get(clientId);
+  if (!ws || ws.readyState !== ws.OPEN) {
+    return Promise.reject(new Error('Client tidak sedang terkoneksi.'));
+  }
+
+  const id = `${clientId}-update-${Date.now()}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingUpdates.delete(id);
+      reject(new Error('Timeout menunggu balasan update dari client.'));
+    }, UPDATE_TIMEOUT_MS);
+
+    pendingUpdates.set(id, { resolve, reject, timer });
+    try {
+      ws.send(JSON.stringify({ type: 'update_agent', id }));
+    } catch (err) {
+      clearTimeout(timer);
+      pendingUpdates.delete(id);
+      reject(new Error(`Gagal mengirim perintah update: ${err.message}`));
+    }
+  });
 }
 
 /**
@@ -174,4 +244,4 @@ function isClientConnected(clientId) {
   return !!ws && ws.readyState === ws.OPEN;
 }
 
-module.exports = { attach, requestCommand, isClientConnected };
+module.exports = { attach, requestCommand, requestAgentUpdate, isClientConnected };

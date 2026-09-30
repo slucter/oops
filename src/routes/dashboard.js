@@ -1,5 +1,6 @@
 const express = require('express');
 const { getDashboardClients, getClientDetail } = require('../services/clientDashboardData');
+const { LATEST_AGENT_VERSION } = require('../services/agentVersion');
 
 const router = express.Router();
 
@@ -17,7 +18,11 @@ function formatUptime(seconds) {
 
 router.get('/', (req, res) => {
   const grouped = getDashboardClients();
-  res.render('dashboard', { grouped, username: req.session.username });
+  res.render('dashboard', {
+    grouped,
+    username: req.session.username,
+    latestAgentVersion: LATEST_AGENT_VERSION,
+  });
 });
 
 router.get('/client/:id', (req, res) => {

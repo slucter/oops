@@ -14,11 +14,12 @@
 
     <%
       const groupNames = Object.keys(grouped);
-      let criticalCount = 0, warningCount = 0;
+      let criticalCount = 0, warningCount = 0, outdatedCount = 0;
       for (const g of groupNames) {
         for (const c of grouped[g]) {
           if (c.worstSeverity === 'critical') criticalCount++;
           else if (c.worstSeverity === 'warning') warningCount++;
+          if (c.needsUpdate) outdatedCount++;
         }
       }
     %>
@@ -30,6 +31,18 @@
           <% if (criticalCount) { %> &middot; <%= criticalCount %> critical<% } %>
           <% if (warningCount) { %> &middot; <%= warningCount %> warning<% } %>
         </span>
+      </div>
+    <% } %>
+
+    <% if (outdatedCount > 0) { %>
+      <div class="banner-update">
+        <span>⬆</span>
+        <span>
+          <span class="count"><%= outdatedCount %></span> client menjalankan agent versi lama.
+          Versi terbaru: <b>v<%= latestAgentVersion %></b>
+        </span>
+        <button type="button" id="update-all-btn" class="btn-sm btn-primary">Update semua</button>
+        <span id="update-all-status" class="update-status"></span>
       </div>
     <% } %>
 
@@ -58,6 +71,7 @@
               <th>Latency</th>
               <th>RAM</th>
               <th>Disk</th>
+              <th>Agent</th>
               <th>Last seen</th>
               <th style="text-align:right;">Actions</th>
             </tr>
@@ -91,9 +105,25 @@
                 <td class="num"><%- include('partials/latency', { ms: c.status === 'up' ? c.lastLatencyMs : null }) %></td>
                 <td class="num"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.memPercent : null }) %></td>
                 <td class="num"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.diskPercent : null }) %></td>
+                <td>
+                  <% if (c.status === 'pending') { %>
+                    <span class="meta">—</span>
+                  <% } else if (c.needsUpdate) { %>
+                    <span class="agent-ver agent-old"
+                          title="Terpasang: v<%= c.agentVersion || 'lama (tidak melaporkan versi)' %> &middot; tersedia: v<%= latestAgentVersion %>">
+                      v<%= c.agentVersion || '?' %> ⬆
+                    </span>
+                  <% } else { %>
+                    <span class="agent-ver agent-ok" title="Sudah versi terbaru">v<%= c.agentVersion %></span>
+                  <% } %>
+                </td>
                 <td class="meta num"><%= c.lastSeenAt || 'never' %></td>
                 <td>
                   <div class="row-actions">
+                    <% if (c.needsUpdate && c.status === 'up') { %>
+                      <button type="button" class="btn-sm btn-primary update-agent-btn"
+                              data-id="<%= c.id %>" data-name="<%= c.name %>">Update</button>
+                    <% } %>
                     <a class="btn btn-sm btn-ghost" href="/client/<%= c.id %>">Detail</a>
                     <a class="btn btn-sm btn-ghost" href="/clients/<%= c.id %>/edit">Edit</a>
                     <form method="post" action="/clients/<%= c.id %>/delete"
@@ -116,11 +146,65 @@
       var secondsLeft = REFRESH_MS / 1000;
       var indicator = document.getElementById('refresh-indicator');
 
+      // Update agent bisa memakan beberapa menit. Auto-refresh di tengahnya
+      // akan membatalkan permintaan fetch dan membuat hasilnya tidak pernah
+      // terlihat — jadi refresh ditahan selama ada update berjalan.
+      var updating = 0;
+
       setInterval(function () {
+        if (updating > 0) {
+          indicator.textContent = 'auto refresh ditahan — update agent sedang berjalan';
+          secondsLeft = REFRESH_MS / 1000;
+          return;
+        }
         secondsLeft -= 1;
         if (secondsLeft <= 0) { location.reload(); return; }
         indicator.textContent = 'auto refresh in ' + secondsLeft + 's';
       }, 1000);
+
+      function jalankanUpdate(url, tombol, statusEl, labelSelesai) {
+        updating++;
+        var labelAwal = tombol.textContent;
+        tombol.disabled = true;
+        tombol.textContent = 'Updating…';
+        if (statusEl) statusEl.textContent = 'Mengunduh & memasang, bisa beberapa menit…';
+
+        return fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.json().catch(function () { return { error: 'Balasan server tidak terbaca.' }; }); })
+          .then(function (data) {
+            if (data.error) throw new Error(data.error);
+            if (statusEl) statusEl.textContent = data.message || labelSelesai;
+            tombol.textContent = 'Selesai ✓';
+            // Muat ulang supaya versi baru yang dilaporkan agent terlihat.
+            // Diberi jeda karena agent baru mengirim metrik (dengan versi
+            // barunya) setelah ia selesai restart dan terhubung lagi.
+            setTimeout(function () { location.reload(); }, 8000);
+          })
+          .catch(function (err) {
+            tombol.disabled = false;
+            tombol.textContent = labelAwal;
+            if (statusEl) statusEl.textContent = 'Gagal: ' + err.message;
+            else alert('Update gagal: ' + err.message);
+          })
+          .then(function () { updating--; });
+      }
+
+      document.querySelectorAll('.update-agent-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var nama = btn.getAttribute('data-name');
+          if (!confirm('Update agent di "' + nama + '"?\n\nAgent akan mengunduh versi terbaru lalu restart. Client sempat terputus beberapa detik.')) return;
+          var status = document.getElementById('update-all-status');
+          jalankanUpdate('/clients/' + btn.getAttribute('data-id') + '/update-agent', btn, status, 'Update selesai.');
+        });
+      });
+
+      var allBtn = document.getElementById('update-all-btn');
+      if (allBtn) {
+        allBtn.addEventListener('click', function () {
+          if (!confirm('Update agent di semua client yang tertinggal versi?\n\nDikerjakan satu per satu. Kalau ada yang gagal, sisanya dihentikan supaya masalahnya tidak menyebar.')) return;
+          jalankanUpdate('/clients/update-agent-all', allBtn, document.getElementById('update-all-status'), 'Semua selesai.');
+        });
+      }
     })();
   </script>
 <%- include('partials/layout-foot') %>
