@@ -1,0 +1,182 @@
+<script>
+  (function () {
+    var btn = document.getElementById('peta-mulai');
+    var panel = document.getElementById('peta-panel');
+    if (!btn || !panel) return;
+
+    var isi = document.getElementById('peta-isi');
+    var ringkas = document.getElementById('peta-ringkas');
+
+    function ukuran(kb) {
+      if (kb == null) return '—';
+      var b = kb * 1024;
+      if (b < 1024) return b + ' B';
+      var u = ['KB', 'MB', 'GB', 'TB'], i = -1, n = b;
+      do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+      return n.toFixed(n >= 10 || i === 0 ? 0 : 1) + ' ' + u[i];
+    }
+
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = s == null ? '' : s;
+      return d.innerHTML;
+    }
+
+    /**
+     * Gambar satu simpul pohon beserta anaknya.
+     *
+     * `induk` dipakai menghitung lebar bar: proporsi terhadap INDUK, bukan
+     * terhadap total disk. Kalau diukur terhadap total, seluruh subfolder
+     * di kedalaman 4 akan tampak sama-sama kecil dan tidak ada yang
+     * menonjol — padahal justru di situ letak yang bengkak.
+     */
+    function gambarSimpul(s, indukKb, level) {
+      var persen = indukKb > 0 ? Math.round(s.kb / indukKb * 100) : 100;
+      var lebar = Math.max(2, Math.min(100, persen));
+      var adaAnak = s.anak && s.anak.length;
+
+      var html = '<div class="peta-simpul" style="--lv:' + level + '">'
+        + '<div class="peta-baris' + (adaAnak ? ' bisa-buka' : '') + '">'
+        + (adaAnak ? '<span class="peta-tanda">▾</span>' : '<span class="peta-tanda kosong">·</span>')
+        + '<span class="peta-nama" title="' + esc(s.path) + '">' + esc(s.nama) + '</span>'
+        + '<span class="peta-bar"><span class="peta-bar-isi" style="width:' + lebar + '%"></span></span>'
+        + '<span class="peta-ukuran">' + ukuran(s.kb) + '</span>'
+        + '<span class="peta-persen">' + persen + '%</span>'
+        + '</div>';
+
+      if (adaAnak) {
+        html += '<div class="peta-anak">';
+        for (var i = 0; i < s.anak.length; i++) {
+          html += gambarSimpul(s.anak[i], s.kb, level + 1);
+        }
+        // "Sisa" = berkas langsung di folder ini + subfolder di bawah ambang.
+        // Tanpa baris ini, folder 1.5GB yang anaknya hanya 200MB terlihat
+        // janggal dan orang mengira petanya salah.
+        if (s.sisaKb > 0) {
+          var ps = s.kb > 0 ? Math.round(s.sisaKb / s.kb * 100) : 0;
+          html += '<div class="peta-simpul sisa" style="--lv:' + (level + 1) + '">'
+            + '<div class="peta-baris">'
+            + '<span class="peta-tanda kosong">·</span>'
+            + '<span class="peta-nama">berkas langsung &amp; folder kecil</span>'
+            + '<span class="peta-bar"><span class="peta-bar-isi" style="width:' + Math.max(2, ps) + '%"></span></span>'
+            + '<span class="peta-ukuran">' + ukuran(s.sisaKb) + '</span>'
+            + '<span class="peta-persen">' + ps + '%</span>'
+            + '</div></div>';
+        }
+        html += '</div>';
+      }
+      return html + '</div>';
+    }
+
+    function gambarHasil(h) {
+      ringkas.textContent = 'total ' + ukuran(h.totalKb)
+        + ' · ' + h.jumlahFolder + ' folder di atas ' + ukuran(h.ambangKb)
+        + (h.terpotong ? ' · daftar dipotong' : '');
+
+      var html = '';
+      if (!h.pohon || !h.pohon.length) {
+        html = '<div class="meta">Tidak ada folder yang cukup besar untuk ditampilkan.</div>';
+      } else {
+        html = '<div class="peta-pohon">';
+        for (var i = 0; i < h.pohon.length; i++) {
+          html += gambarSimpul(h.pohon[i], h.pohon[i].kb, 0);
+        }
+        html += '</div>';
+      }
+
+      if (h.file && h.file.length) {
+        html += '<div class="peta-judul-file">File besar individual</div><div class="peta-file">';
+        for (var j = 0; j < h.file.length; j++) {
+          html += '<div class="peta-file-baris">'
+            + '<span class="peta-file-path" title="' + esc(h.file[j].path) + '">' + esc(h.file[j].path) + '</span>'
+            + '<span class="peta-ukuran">' + ukuran(h.file[j].kb) + '</span></div>';
+        }
+        html += '</div>';
+      }
+
+      if (h.catatan && h.catatan.length) {
+        html += '<div class="field-hint" style="margin-top:.7rem;">' + h.catatan.map(esc).join('<br>') + '</div>';
+      }
+
+      html += '<div class="field-hint" style="margin-top:.7rem;">'
+        + 'Isi node_modules, .git, dan .venv tidak dibongkar — foldernya tetap dihitung utuh, '
+        + 'hanya rinciannya yang tidak ditampilkan supaya peta tidak penuh derau.</div>';
+
+      isi.innerHTML = html;
+
+      // Buka-tutup cabang.
+      isi.querySelectorAll('.peta-baris.bisa-buka').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var simpul = b.parentNode;
+          simpul.classList.toggle('tutup');
+          var tanda = b.querySelector('.peta-tanda');
+          if (tanda) tanda.textContent = simpul.classList.contains('tutup') ? '▸' : '▾';
+        });
+      });
+    }
+
+    function pantau(jobId) {
+      var gagalBerturut = 0;
+      var timer = setInterval(function () {
+        fetch('/peta/' + jobId, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) {
+            if (r.status === 404) throw new Error('habis');
+            return r.json();
+          })
+          .then(function (data) {
+            gagalBerturut = 0;
+            if (!data.selesai) {
+              ringkas.textContent = data.tahap || 'memindai…';
+              isi.innerHTML = '<div class="meta">&#10227; Memindai isi disk. Untuk server dengan banyak berkas ini bisa memakan beberapa menit — halaman boleh ditinggal, hasilnya tetap dihitung.</div>';
+              return;
+            }
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.textContent = '▤ Peta Disk';
+            if (data.status === 'gagal') {
+              ringkas.textContent = '';
+              isi.innerHTML = '<div class="error" style="margin:0;">' + esc(data.pesan || 'Pemetaan gagal.') + '</div>';
+              return;
+            }
+            gambarHasil(data.hasil);
+          })
+          .catch(function (err) {
+            gagalBerturut++;
+            if (err.message === 'habis' || gagalBerturut >= 10) {
+              clearInterval(timer);
+              btn.disabled = false;
+              btn.textContent = '▤ Peta Disk';
+              isi.innerHTML = '<div class="error" style="margin:0;">'
+                + (err.message === 'habis'
+                  ? 'Hasil sudah kedaluwarsa dari memori server. Jalankan ulang pemetaan.'
+                  : 'Koneksi terputus. Pemindaian tetap berjalan di server target.')
+                + '</div>';
+            }
+          });
+      }, 2000);
+    }
+
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = 'Memindai…';
+      panel.hidden = false;
+      ringkas.textContent = 'menyiapkan…';
+      isi.innerHTML = '<div class="meta">&#10227; Menyiapkan pemindaian…</div>';
+
+      fetch('/clients/' + btn.dataset.id + '/peta', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+        .then(function (r) { return r.json().catch(function () { return { error: 'Balasan server tidak terbaca.' }; }); })
+        .then(function (data) {
+          if (data.error) throw new Error(data.error);
+          pantau(data.jobId);
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = '▤ Peta Disk';
+          isi.innerHTML = '<div class="error" style="margin:0;">' + esc(err.message) + '</div>';
+        });
+    });
+  })();
+</script>

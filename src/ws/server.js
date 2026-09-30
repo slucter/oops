@@ -4,13 +4,18 @@ const clientStore = require('../services/clientStore');
 const clientDataService = require('../services/clientDataService');
 const { validateMetricPayload, validateCommandResultPayload, validateUpdateResultPayload } = require('../services/payloadValidator');
 
-// Batas ukuran pesan dari agent. 8 KB cukup untuk metrik dan balasan biasa,
-// tapi hasil optimasi membawa rincian per langkah: dengan batas validator
-// (30 langkah, nama 120 char, pesan 300 char) satu balasan sah bisa mencapai
-// ~17 KB. Batas 8 KB akan memutus agent yang jujur, jadi 32 KB dipakai —
-// masih jauh dari cukup besar untuk menjadi masalah memori, dan validator
-// tetap memotong isinya setelah itu.
-const MAX_MESSAGE_BYTES = 32 * 1024;
+// Batas ukuran pesan dari agent.
+//
+// Metrik dan balasan biasa hanya beberapa ratus byte, tapi dua jenis pesan
+// jauh lebih besar dan batasnya harus memuat keduanya:
+//   - hasil optimasi : ~17 KB pada batas validator (30 langkah)
+//   - hasil pemetaan : ~130 KB pada batas validator (400 folder + 50 file,
+//                      path sampai 300 char). Kasus nyata di KST Lab: 5 KB.
+//
+// Batas yang terlalu ketat memutus agent yang jujur di tengah pelaporan —
+// pernah terjadi saat batasnya 8 KB. 256 KB memberi ruang cukup sambil tetap
+// membatasi pemakaian memori, dan validator memotong isinya setelah itu.
+const MAX_MESSAGE_BYTES = 256 * 1024;
 const STALE_THRESHOLD_SECONDS = Number(process.env.CLIENT_STALE_SECONDS || 90);
 const STALE_CHECK_INTERVAL_MS = 15000;
 const COMMAND_TIMEOUT_MS = 10000;
@@ -31,6 +36,8 @@ const pendingUpdates = new Map();
 const pendingUninstalls = new Map();
 // requestId -> { resolve, onProgress, timer, ... }, optimasi yang menunggu balasan.
 const pendingOptimize = new Map();
+// requestId -> { resolve, onProgress, timer, ... }, pemetaan yang menunggu balasan.
+const pendingPeta = new Map();
 // clientId -> latency RTT terakhir (ms) dari ping/pong WebSocket. Hanya di
 // memori: nilainya ikut disimpan ke DB saat payload metrik berikutnya masuk,
 // supaya tidak bikin baris/tabel sendiri untuk angka yang berubah terus.
@@ -185,6 +192,30 @@ function handleMessage(clientId, raw) {
       clearTimeout(pending.timer);
       pendingCommands.delete(result.data.id);
       pending.resolve(result.data);
+    }
+    return;
+  }
+
+  if (msg.type === 'peta_progress') {
+    const p = pendingPeta.get(msg.id);
+    if (p && p.onProgress) {
+      clearTimeout(p.timer);
+      p.timer = setTimeout(p.onTimeout, p.timeoutMs);
+      try {
+        p.onProgress({ tahap: typeof msg.tahap === 'string' ? msg.tahap.slice(0, 120) : null });
+      } catch {
+        // kabar kemajuan tidak boleh menjatuhkan koneksi
+      }
+    }
+    return;
+  }
+
+  if (msg.type === 'peta_result') {
+    const p = pendingPeta.get(msg.id);
+    if (p) {
+      clearTimeout(p.timer);
+      pendingPeta.delete(msg.id);
+      p.resolve(validatePetaResult(msg));
     }
     return;
   }
@@ -409,9 +440,74 @@ function validateOptimizeResult(msg) {
   };
 }
 
+/**
+ * Minta agent memetakan pemakaian disknya.
+ *
+ * Timeout panjang dan diperpanjang tiap kabar kemajuan: `du` seluruh disk
+ * bisa memakan menit di server dengan jutaan file.
+ */
+function requestPeta(clientId, onProgress, timeoutMs) {
+  const ws = activeConnections.get(clientId);
+  if (!ws || ws.readyState !== ws.OPEN) {
+    return Promise.resolve({ ok: false, pesan: 'Client tidak sedang terkoneksi.' });
+  }
+
+  const id = `${clientId}-peta-${Date.now()}`;
+  const batas = Number(timeoutMs) || 20 * 60 * 1000;
+
+  return new Promise((resolve) => {
+    const onTimeout = () => {
+      pendingPeta.delete(id);
+      resolve({ ok: false, pesan: 'Agent berhenti melapor — pemindaian mungkin masih berjalan di server itu.' });
+    };
+    const entry = { resolve, onProgress, onTimeout, timeoutMs: batas, timer: setTimeout(onTimeout, batas) };
+    pendingPeta.set(id, entry);
+    try {
+      ws.send(JSON.stringify({ type: 'peta_disk', id }));
+    } catch (err) {
+      clearTimeout(entry.timer);
+      pendingPeta.delete(id);
+      resolve({ ok: false, pesan: `Gagal mengirim perintah: ${err.message}` });
+    }
+  });
+}
+
+/**
+ * Bersihkan hasil pemetaan dari agent.
+ *
+ * Path dibatasi panjangnya dan jumlah barisnya dibatasi keras: isinya datang
+ * dari mesin lain dan akan dirender di dashboard.
+ */
+function validatePetaResult(msg) {
+  const angka = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+  const teks = (v, n) => (typeof v === 'string' ? v.slice(0, n) : null);
+
+  const baris = (arr, maks) => (Array.isArray(arr) ? arr.slice(0, maks) : [])
+    .map((f) => ({
+      path: teks(f && f.path, 300),
+      kb: angka(f && f.kb),
+      level: angka(f && f.level) || 0,
+    }))
+    .filter((f) => f.path && f.kb != null);
+
+  return {
+    ok: msg.ok !== false,
+    pesan: teks(msg.pesan, 500),
+    root: teks(msg.root, 200) || '/',
+    totalKb: angka(msg.totalKb),
+    ambangKb: angka(msg.ambangKb),
+    terpotong: !!msg.terpotong,
+    folder: baris(msg.folder, 400),
+    file: baris(msg.file, 50),
+    catatan: Array.isArray(msg.catatan)
+      ? msg.catatan.slice(0, 10).map((c) => teks(c, 200)).filter(Boolean)
+      : [],
+  };
+}
+
 function isClientConnected(clientId) {
   const ws = activeConnections.get(clientId);
   return !!ws && ws.readyState === ws.OPEN;
 }
 
-module.exports = { attach, requestCommand, requestAgentUpdate, requestUninstall, requestOptimize, isClientConnected };
+module.exports = { attach, requestCommand, requestAgentUpdate, requestUninstall, requestOptimize, requestPeta, isClientConnected };

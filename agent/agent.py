@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.3.0'
+AGENT_VERSION = '1.4.0'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -758,6 +758,162 @@ def handle_uninstall_command(ws, req_id):
     self_uninstall('diperintahkan dari dashboard')
 
 
+# ===================== Pemetaan disk =====================
+
+# Folder yang isinya tidak dibongkar. Bukan diabaikan — folder ini tetap
+# muncul sebagai satu baris dengan total ukurannya, hanya isinya yang tidak
+# ditelusuri. Membongkar node_modules menghasilkan ribuan folder kecil yang
+# memenuhi peta tanpa memberi tahu apa pun yang berguna: yang perlu diketahui
+# cukup "node_modules ini 400 MB", bukan rincian tiap paketnya.
+SKIP_ISI = ['node_modules', '.git', '.cache/yarn', '.venv', 'vendor/bundle']
+
+# Filesystem virtual: isinya bukan data di disk, jadi memetakannya
+# menyesatkan (mis. /proc/kcore tampak sebesar seluruh RAM).
+SKIP_MOUNT = ['/proc', '/sys', '/dev', '/run', '/snap']
+
+
+def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50):
+    """
+    Petakan folder yang membuat disk bengkak, sampai ke folder terdalam.
+
+    Mengembalikan pohon folder yang sudah DIPANGKAS: hanya folder yang
+    ukurannya >= `min_persen` dari total disk terpakai. Tanpa pemangkasan,
+    `du` di server ini menghasilkan 12.775 baris (546 KB) — terlalu besar
+    untuk dikirim lewat WebSocket dan terlalu banyak untuk dibaca manusia.
+    Dengan ambang 0.5%, tersisa 48 folder yang benar-benar berarti.
+
+    File besar individual dicari terpisah, karena penyebab disk penuh sering
+    satu berkas (log tidak dirotasi, dump database, core dump) dan melihat
+    foldernya saja tidak cukup untuk tahu apa yang harus dihapus.
+
+    Dijalankan dengan nice/ionice supaya tidak mengganggu layanan yang sedang
+    melayani permintaan di server itu.
+    """
+    hasil = {'root': '/', 'folder': [], 'file': [], 'totalKb': None,
+             'ambangKb': None, 'terpotong': False, 'catatan': []}
+
+    # Total dulu, untuk menghitung ambang relatif.
+    ok, out = _jalan('du -xsk / 2>/dev/null', timeout=600)
+    total_kb = None
+    if ok and out:
+        try:
+            total_kb = int(out.split()[0])
+        except (ValueError, IndexError):
+            pass
+    if not total_kb:
+        st = os.statvfs('/')
+        total_kb = ((st.f_blocks - st.f_bfree) * st.f_frsize) // 1024
+    hasil['totalKb'] = total_kb
+
+    ambang_kb = max(1024, int(total_kb * min_persen / 100))
+    hasil['ambangKb'] = ambang_kb
+
+    # Prefix nice/ionice kalau tersedia: pemetaan adalah pekerjaan latar,
+    # tidak boleh merebut I/O dari layanan yang sedang berjalan.
+    prefix = ''
+    if _punya('ionice'):
+        prefix += 'ionice -c3 '
+    if _punya('nice'):
+        prefix += 'nice -n 19 '
+
+    exclude = ' '.join("--exclude='*/%s/*'" % s for s in SKIP_ISI)
+    exclude += ' ' + ' '.join("--exclude='%s/*'" % s for s in SKIP_MOUNT)
+
+    ok, out = _jalan('%sdu -xk %s / 2>/dev/null' % (prefix, exclude), timeout=1800)
+    if not ok and not out:
+        hasil['catatan'].append('Pemindaian gagal atau tidak menghasilkan apa pun.')
+        return hasil
+
+    folder = []
+    for baris in out.split('\n'):
+        if not baris.strip():
+            continue
+        bagian = baris.split('\t', 1)
+        if len(bagian) != 2:
+            continue
+        try:
+            kb = int(bagian[0])
+        except ValueError:
+            continue
+        path = bagian[1].strip()
+        if kb < ambang_kb:
+            continue
+        folder.append({'path': path, 'kb': kb,
+                       'level': 0 if path == '/' else path.count('/')})
+
+    folder.sort(key=lambda f: f['path'])
+
+    # Batas keras: kalau ambang relatif masih menyisakan terlalu banyak
+    # (server dengan ribuan folder besar), ambil yang terbesar saja.
+    if len(folder) > 400:
+        folder.sort(key=lambda f: -f['kb'])
+        folder = folder[:400]
+        folder.sort(key=lambda f: f['path'])
+        hasil['terpotong'] = True
+    hasil['folder'] = folder
+
+    # File besar individual.
+    if maks_file > 0:
+        cari_exclude = ' '.join("-path '*/%s' -prune -o" % s for s in SKIP_ISI)
+        cari_exclude += ' ' + ' '.join("-path '%s' -prune -o" % s for s in SKIP_MOUNT)
+        perintah = (
+            "%sfind / -xdev %s -type f -size +%dM -printf '%%s\\t%%p\\n' 2>/dev/null "
+            "| sort -rn | head -%d" % (prefix, cari_exclude, min_file_mb, maks_file)
+        )
+        ok, out = _jalan(perintah, timeout=1800)
+        if ok and out:
+            for baris in out.split('\n'):
+                bagian = baris.split('\t', 1)
+                if len(bagian) != 2:
+                    continue
+                try:
+                    hasil['file'].append({'path': bagian[1].strip(),
+                                          'kb': int(bagian[0]) // 1024})
+                except ValueError:
+                    continue
+
+    return hasil
+
+
+_peta_berjalan = threading.Lock()
+
+
+def handle_peta(ws, req_id):
+    """
+    Jalankan pemetaan di thread, laporkan kemajuan.
+
+    Sama seperti optimasi: dijalankan di thread supaya agent tetap mengirim
+    metrik selama pemindaian. `du` seluruh disk bisa memakan menit di server
+    dengan jutaan file, dan agent yang diam selama itu akan ditandai DOWN.
+    """
+    def kirim(payload):
+        try:
+            ws.send_text(json.dumps(payload))
+        except Exception:
+            pass
+
+    def kerja():
+        if not _peta_berjalan.acquire(blocking=False):
+            kirim({'type': 'peta_result', 'id': req_id, 'ok': False,
+                   'pesan': 'Pemetaan lain masih berjalan di server ini.'})
+            return
+        try:
+            kirim({'type': 'peta_progress', 'id': req_id, 'tahap': 'memindai folder…'})
+            hasil = _peta_disk()
+            kirim({'type': 'peta_progress', 'id': req_id, 'tahap': 'menyusun hasil…'})
+            hasil.update({'type': 'peta_result', 'id': req_id, 'ok': True})
+            kirim(hasil)
+            print('[agent] pemetaan selesai: %d folder, %d file'
+                  % (len(hasil['folder']), len(hasil['file'])))
+        except Exception as e:
+            print('[agent] pemetaan gagal: %s' % e, file=sys.stderr)
+            kirim({'type': 'peta_result', 'id': req_id, 'ok': False, 'pesan': str(e)})
+        finally:
+            _peta_berjalan.release()
+
+    threading.Thread(target=kerja, daemon=True).start()
+
+
 _optimasi_berjalan = threading.Lock()
 
 
@@ -894,6 +1050,8 @@ def session():
                 handle_self_update(ws, msg['id'])
             elif msg.get('type') == 'uninstall_agent' and msg.get('id'):
                 handle_uninstall_command(ws, msg['id'])
+            elif msg.get('type') == 'peta_disk' and msg.get('id'):
+                handle_peta(ws, msg['id'])
             elif msg.get('type') == 'optimize' and msg.get('id'):
                 handle_optimize(ws, msg['id'], bool(msg.get('docker')))
     finally:

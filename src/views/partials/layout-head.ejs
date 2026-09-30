@@ -771,6 +771,63 @@
       .opt-kanan, .opt-rincian { grid-column: 2 / -1; }
     }
 
+    /* ================= PETA DISK ================= */
+    .peta-pohon { font-size: .78rem; }
+    .peta-simpul.tutup > .peta-anak { display: none; }
+    .peta-anak { border-left: 1px solid var(--line); margin-left: .55rem; }
+
+    .peta-baris {
+      display: grid;
+      grid-template-columns: 16px minmax(90px, 1fr) minmax(60px, 200px) 72px 44px;
+      align-items: center;
+      gap: .5rem;
+      padding: .3rem .5rem;
+      border-radius: 3px;
+    }
+    .peta-baris.bisa-buka { cursor: pointer; }
+    .peta-baris:hover { background: rgba(61,216,138,.06); }
+    .peta-tanda { color: var(--accent); opacity: .65; font-size: .7rem; text-align: center; }
+    .peta-tanda.kosong { color: var(--text-faint); opacity: .35; }
+    .peta-nama {
+      color: var(--text); font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .peta-simpul.sisa .peta-nama { color: var(--text-faint); font-weight: 400; font-style: italic; }
+
+    .peta-bar {
+      display: block; height: 7px;
+      background: rgba(61,216,138,.09);
+      border-radius: 2px; overflow: hidden;
+    }
+    .peta-bar-isi { display: block; height: 100%; background: var(--accent); opacity: .55; }
+    .peta-simpul.sisa .peta-bar-isi { background: var(--text-faint); opacity: .4; }
+
+    .peta-ukuran { color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; }
+    .peta-simpul.sisa .peta-ukuran { color: var(--text-dim); }
+    .peta-persen { color: var(--text-faint); font-size: .7rem; text-align: right; font-variant-numeric: tabular-nums; }
+
+    .peta-judul-file {
+      margin: 1.2rem 0 .5rem;
+      color: var(--accent); font-size: .78rem; font-weight: 700;
+      letter-spacing: .05em;
+    }
+    .peta-file { display: flex; flex-direction: column; gap: .2rem; font-size: .76rem; }
+    .peta-file-baris {
+      display: flex; gap: .7rem; align-items: baseline;
+      padding: .25rem .5rem;
+      border-bottom: 1px solid rgba(61,216,138,.06);
+    }
+    .peta-file-path {
+      flex: 1; min-width: 0; color: var(--text-dim);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      direction: rtl; text-align: left; /* potong dari KIRI: nama berkas di ujung kanan lebih penting */
+    }
+
+    @media (max-width: 760px) {
+      .peta-baris { grid-template-columns: 16px 1fr 64px; }
+      .peta-bar, .peta-persen { display: none; }
+    }
+
     /* ================= SHARE ================= */
     .share-badge {
       display: inline-flex; align-items: center; gap: .35rem;

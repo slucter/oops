@@ -4,6 +4,7 @@ const groupStore = require('../services/groupStore');
 const wsServer = require('../ws/server');
 const agentVersion = require('../services/agentVersion');
 const optimizeJobs = require('../services/optimizeJobs');
+const petaJobs = require('../services/petaJobs');
 
 const router = express.Router();
 
@@ -223,6 +224,32 @@ router.post('/optimize', (req, res) => {
   });
 
   res.json({ ok: true, jobId: job.id, jumlah: valid.length });
+});
+
+/**
+ * Mulai pemetaan disk untuk satu client. Membalas segera dengan id job —
+ * `du` seluruh disk bisa memakan menit di server dengan jutaan file.
+ */
+router.post('/clients/:id/peta', (req, res) => {
+  const id = Number(req.params.id);
+  const client = clientStore.getClientById(id);
+  if (!client) return res.status(404).json({ error: 'Client tidak ditemukan.' });
+
+  const job = petaJobs.buatJob(id);
+  petaJobs.jalankan(job).catch((err) => {
+    console.error('[peta] job gagal:', err.message);
+  });
+
+  res.json({ ok: true, jobId: job.id });
+});
+
+/** Kemajuan / hasil pemetaan. */
+router.get('/peta/:jobId', (req, res) => {
+  const job = petaJobs.getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job tidak ditemukan atau sudah kedaluwarsa.' });
+  }
+  res.json(petaJobs.ringkas(job));
 });
 
 /** Kemajuan job optimasi — dipanggil berkala oleh dashboard. */

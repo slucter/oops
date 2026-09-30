@@ -20,6 +20,9 @@
         <span class="live-dot" id="live-indicator" title="Data diperbarui otomatis"></span>
         <span class="badge badge-<%= item.status %>" id="live-status"><%= item.status.toUpperCase() %></span>
         <% if (item.status === 'up') { %>
+          <button type="button" class="btn btn-ghost" id="peta-mulai"
+                  data-id="<%= item.id %>" data-name="<%= item.name %>"
+                  title="Petakan folder mana yang membuat disk bengkak">▤ Peta Disk</button>
           <button type="button" class="btn btn-ghost" id="opt-satu"
                   data-id="<%= item.id %>" data-name="<%= item.name %>"
                   title="Bersihkan cache, journal, dan file sementara di server ini">⚡ Optimize</button>
@@ -27,6 +30,14 @@
         <button type="button" class="btn btn-ghost share-btn" data-id="<%= item.id %>" data-name="<%= item.name %>" title="Buat link share read-only">⇗ Share</button>
         <a class="btn btn-ghost" href="/clients/<%= item.id %>/edit">Edit</a>
       </div>
+    </div>
+
+    <div class="panel panel-pad" id="peta-panel" hidden style="margin-bottom:1.1rem;">
+      <div class="opt-head">
+        <span class="opt-judul">Peta pemakaian disk</span>
+        <span class="meta" id="peta-ringkas"></span>
+      </div>
+      <div id="peta-isi"></div>
     </div>
 
     <div class="panel panel-pad" id="opt-panel" hidden style="margin-bottom:1.1rem;">
@@ -534,19 +545,17 @@
     })();
   </script>
 <%- include('partials/optimize-js') %>
-<script id=opt-satu-handler>
+<%- include('partials/peta-js') %>
+<script id="opt-satu-handler">
   (function () {
     var b = document.getElementById('opt-satu');
     if (!b) return;
     b.addEventListener('click', function () {
-      if (!confirm('Optimize  + b.dataset.name + ?
-
-'
+      var pesan = 'Optimize "' + b.dataset.name + '"?\n\n'
         + 'Yang dibersihkan: journal systemd (dipangkas, bukan dihapus), cache paket, '
-        + 'file /tmp lama, dan log rotasi lama.
-
-'
-        + 'Data aplikasi tidak disentuh dan tidak ada service yang direstart.')) return;
+        + 'file /tmp lama, dan log rotasi lama.\n\n'
+        + 'Data aplikasi tidak disentuh dan tidak ada service yang direstart.';
+      if (!confirm(pesan)) return;
       window.oopsOptimize([b.dataset.id], false, b, function () {
         setTimeout(function () { location.reload(); }, 6000);
       });
