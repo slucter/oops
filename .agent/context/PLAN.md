@@ -147,26 +147,30 @@ coba key yang ada di `~/.ssh/` OS tempat app berjalan saat connect ke
 server manapun. Revisi lingkup: pemilik projek sudah setup key manual di
 server kantor untuk SSH sehari-hari (contoh nyata: `iyan@36.88.32.238:1031`
 sudah bisa diakses tanpa password dari mesin ini), jadi app tinggal reuse.
-- [ ] Modul `sshKeyDiscovery.js`: scan `~/.ssh/` untuk file yang terlihat
+- [x] Modul `sshKeyDiscovery.js`: scan `~/.ssh/` untuk file yang terlihat
       seperti private key (skip `.pub`, `known_hosts`, `config`, `authorized_keys`),
       urutan coba: key yang cocok di `~/.ssh/config` (kalau ada `Host` alias
       untuk host target) dulu, baru sisanya
-- [ ] `sshClient.js`: hapus parameter `sshKey`, ganti jadi coba tiap key
+- [x] `sshClient.js`: hapus parameter `sshKey`, ganti jadi coba tiap key
       hasil discovery satu per satu sampai `connect` berhasil; cache hasil
       key-mana-yang-cocok per host (in-memory, reset saat app restart)
       supaya polling berikutnya tidak coba-coba ulang dari awal
-- [ ] `serverStore.js` + `schema.sql`: hapus kolom `ssh_key_path`
-- [ ] Hapus `keyUpload.js`, `multer`, `uuid` dari dependencies; hapus route
+- [x] `serverStore.js` + `schema.sql`: hapus kolom `ssh_key_path`
+- [x] Hapus `keyUpload.js`, `multer`, `uuid` dari dependencies; hapus route
       upload dan field file di `server-form.ejs`
-- [ ] Pesan error kalau semua key gagal: sebutkan berapa key yang dicoba,
+- [x] Pesan error kalau semua key gagal: sebutkan berapa key yang dicoba,
       bukan cuma "auth failed" mentah dari ssh2
-- [ ] Dokumentasi README: key harus **tanpa passphrase**, harus sudah
+- [x] Dokumentasi README: key harus **tanpa passphrase**, harus sudah
       ter-otorisasi (`authorized_keys`) di server target, folder `~/.ssh/`
       dibaca dari HOME user yang menjalankan proses app (relevan kalau
       nanti dijalankan sebagai systemd service dengan user berbeda)
 Selesai kalau: server baru bisa ditambahkan hanya dengan isi
 nama/host/port/user (tanpa upload apa pun), dan status UP/DOWN berhasil
 dicek memakai key yang sudah ada di `~/.ssh/` tanpa konfigurasi tambahan.
+**Status: selesai, di-commit `e07609c`. TERVALIDASI ke server SSH nyata
+(`iyan@36.88.32.238:1031`): koneksi + `docker ps -a` berhasil sungguhan.
+`sudo ss -tulnp` gagal di server itu karena sudoers belum di-setup
+(prasyarat, bukan bug) — lihat catatan di bawah Tahap 3.**
 
 ### Tahap 2 — Jump host / ProxyJump · kecil-menengah
 Tujuan: server internal (contoh `user@10.10.10.10` di balik bastion) bisa
@@ -183,14 +187,23 @@ host yang riil, dan status tergroup jelas di bawah bastion-nya.
 ### Tahap 3 — Docker & port info · menengah
 Tujuan: untuk server yang UP dan `has_docker: true`, tampilkan hasil
 `docker ps -a`; untuk semua server UP, tampilkan hasil `sudo ss -tulnp`.
-- [ ] Modul eksekusi command read-only via SSH (reuse koneksi dari cek status)
-- [ ] Simpan snapshot ke `docker_snapshots` / `port_snapshots`
-- [ ] Halaman detail server: tabel container (nama, image, status, ports) dan
-      tabel port listen (proto, local address, port, proses)
-- [ ] Penanganan kalau `docker` tidak terpasang atau sudo gagal (tampilkan
-      pesan jelas, bukan crash)
+- [x] Modul eksekusi command read-only via SSH (reuse koneksi dari cek status)
+      — sudah ada sejak Tahap 1 di `statusChecker.js` (`collectServerInfo`)
+- [x] Simpan snapshot ke `docker_snapshots` / `port_snapshots`
+- [x] Halaman detail server: tabel container (nama, image, status, ports) dan
+      tabel port listen (proto, local address, port, proses) — tampil
+      sebagai `<pre>` output mentah, bukan tabel terstruktur (cukup untuk
+      versi ini, lihat catatan Tahap 4 untuk kemungkinan polish)
+- [x] Penanganan kalau `docker` tidak terpasang atau sudo gagal (tampilkan
+      pesan jelas, bukan crash) — tervalidasi nyata (lihat di bawah)
 Selesai kalau: halaman detail server menunjukkan container Docker riil dan
 daftar port listen riil dari minimal satu server yang punya Docker.
+**Status: `docker ps -a` TERVALIDASI ke server nyata (`iyan@36.88.32.238:1031`)
+— container riil tampil di dashboard. `sudo ss -tulnp` di server itu masih
+gagal karena prasyarat sudoers belum di-apply pemilik projek — bukan bug
+kode, sudah didokumentasikan di README. TINDAK LANJUT PEMILIK PROJEK: jalankan
+`visudo -f /etc/sudoers.d/sxops` di server itu dengan isi
+`iyan ALL=(root) NOPASSWD: /usr/sbin/ss`, lalu port listen akan terbaca.**
 
 ### Tahap 4 — Histori status & polish · kecil
 Tujuan: bisa lihat kapan server pernah down, dan dashboard nyaman dipakai
