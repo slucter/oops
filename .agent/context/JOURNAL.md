@@ -10,6 +10,95 @@ Aturan: jangan pernah menulis nilai rahasia di sini. Sebut namanya saja
 
 <!-- Entri baru ditambahkan tepat di bawah baris ini -->
 
+## 2026-10-01 · Remove client mencabut agent + penjaga versi agent
+
+**Agent:** Claude Code (Opus 5)
+**Branch:** `development` · **Commit:** `2670c1e` · **Agent:** v1.2.0
+
+### Selesai
+- **Penjaga kenaikan versi agent** (`796f5fe`): pemilik projek mengoreksi bahwa
+  menaikkan versi agent seharusnya otomatis dipertimbangkan setiap kode agent
+  berubah, bukan menunggu diminta. Dicatat sebagai arahan tetap di
+  `.agent/memory/naikkan-versi-agent.md` + aturan nomor 8 di `AGENTS.md`, lalu
+  **dipaksakan** lewat pre-commit hook (`.githooks/pre-commit` +
+  `agent/cek-versi-naik.js`). Aktifkan per clone: `npm run pasang-hook`.
+- **Lebar kontainer 1180px → 1560px** (`c61d223`): dari screenshot pemilik
+  projek, tabel 11 kolom terpotong di kanan dan kolom hostname/last-seen pecah
+  tiga baris. Kolom yang isinya satu satuan utuh diberi `white-space: nowrap`;
+  hostname dibatasi 190px + ellipsis + `title`. Nama client sengaja tetap boleh
+  membungkus.
+- **Remove client sekarang mencabut agent di server target** (`2670c1e`):
+  service dicabut dari systemd, unit file dihapus, direktori `~/.oops-agent`
+  dihapus. Kegagalan uninstall tidak membatalkan penghapusan — dashboard
+  menampilkan banner kuning berisi perintah pembersihan manual.
+- **Agent berhenti sendiri kalau tokennya dicabut**: setelah 10× ditolak HTTP
+  401 berturut-turut (`OOPS_MAX_TOKEN_REJECTIONS`), agent menyimpulkan dirinya
+  sudah dihapus lalu mencabut diri. Tidak di penolakan pertama — DB server bisa
+  sedang di-restore dari backup, dan agent yang menghapus diri karena gangguan
+  sesaat tidak bisa dibatalkan dari jarak jauh.
+- **Uji dipindahkan ke repo** (`uji/`) dan disambungkan ke `npm test` — total 42
+  pemeriksaan, jalan dari root projek.
+
+### Belum selesai
+- **Enam client produksi masih agent lama** (`agent_version` = kosong), jadi
+  mereka **belum bisa mencabut diri** saat dihapus maupun di-update dari
+  dashboard. Jalankan ulang `curl` install sekali di tiap client. Sampai itu
+  dilakukan, menghapus salah satunya akan memunculkan banner kuning "agent
+  belum tercabut" — itu perilaku yang benar, bukan bug.
+- **Uninstall lewat perintah dashboard belum diuji ke agent sungguhan.** Yang
+  sudah diuji di Linux sungguhan: jalur 401 (agent mencabut diri sendiri).
+  Jalur `uninstall_agent` dari dashboard baru diuji dengan agent tiruan.
+  Keduanya memanggil `selfUninstall()` yang sama, tapi itu belum sama dengan
+  membuktikannya.
+- **UI banner hasil hapus belum pernah dilihat terender** — hanya diverifikasi
+  ada di HTML.
+- Cabang Node portable masih belum diuji sebagai instalasi utuh.
+- Telegram masih belum pernah mengirim pesan nyata.
+
+### Keputusan
+- **Uninstall otomatis saat Remove, bukan dialog pilihan.** Pemilik projek
+  memilih ini. Konsekuensinya Remove jadi lebih destruktif, jadi teks
+  konfirmasinya diperjelas menyebut apa yang akan dihapus di server target.
+- **Gagal uninstall tidak memblokir penghapusan.** Client yang tidak bisa
+  dihapus dari dashboard hanya karena agent-nya offline adalah kemunduran,
+  bukan pengaman.
+- **Ambang 401 di angka 10**, bukan 1. Menghapus diri karena gangguan sesaat
+  tidak bisa dibatalkan dari jarak jauh — harus datang ke server itu manual.
+
+### Jalan buntu
+- **Proses anak ikut mati bersama unit systemd.** Skrip pembersih yang di-spawn
+  detached (Node) / `start_new_session` (Python) **tetap berada di cgroup unit**,
+  dan systemd membunuh seluruh cgroup saat unit berhenti. Akibatnya
+  `Restart=always` menghidupkan agent kembali, yang mencoba mencabut diri lagi —
+  berulang tanpa pernah berhasil (**15 percobaan, folder tetap ada**).
+  Diperbaiki dengan `systemd-run --user --collect`, yang menjalankan pembersih
+  sebagai unit transient di luar cgroup kita. **Ini tidak akan ketahuan tanpa
+  menguji di Linux sungguhan** — semua uji dengan agent tiruan lulus.
+- **`systemctl disable` saja tidak mencegah restart** — hanya mencegah start
+  saat boot.
+- **`systemctl set-property <unit> Restart=no` ditolak systemd**: "Cannot set
+  property Restart, or unknown property". Restart bukan properti yang bisa
+  diubah saat runtime. Jangan dicoba lagi.
+- **Uji bisa lolos palsu karena mencocokkan nama kelas CSS.**
+  `html.includes('banner-sisa')` juga cocok dengan definisi CSS di `<head>`,
+  bukan hanya elemennya. Harus `class="banner-sisa"`.
+- **Uji yang mematok versi langsung usang** saat versi naik. `uji/update-agent.js`
+  sekarang membaca `LATEST_AGENT_VERSION` dari sumbernya.
+
+### Langkah berikutnya
+1. Jalankan ulang `curl` install **sekali** di tiap dari 6 client produksi, agar
+   mereka bisa di-update dan mencabut diri dari dashboard seterusnya.
+2. Setelah itu, uji Remove pada satu client sungguhan dan pastikan
+   `~/.oops-agent` benar-benar hilang di server tersebut.
+3. Konfirmasi lebar 1560px dan banner hasil hapus terlihat benar.
+4. Buat bot Telegram lalu uji dari `/settings`.
+5. Kalau semua beres, merge `development` -> `master`.
+
+### Catatan
+- `npm test` sekarang menjalankan cek versi + 2 rangkaian uji (42 pemeriksaan).
+- Semua berkas dan service uji di KST Lab sudah dibersihkan; 6 client produksi
+  dikonfirmasi tetap UP setelah deploy.
+
 ## 2026-09-30 · Update agent dari dashboard + agent multi-runtime (Python/Node)
 
 **Agent:** Claude Code (Opus 5)
