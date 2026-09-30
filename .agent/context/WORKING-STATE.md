@@ -15,10 +15,15 @@
 **Branch:** master
 
 ## Sedang mengerjakan
-Tahap 1c dari `.agent/context/PLAN.md` (auto-discovery private key dari
-`~/.ssh/`, hapus upload key lewat form) sudah selesai diimplementasi DAN
-**tervalidasi ke server SSH nyata milik pemilik projek**
-(`iyan@36.88.32.238:1031`). Belum di-commit.
+Perbaikan bug + fitur kecil pasca-Tahap 1c, dipicu laporan langsung dari
+pemilik projek yang menjalankan app di terminalnya sendiri: dashboard
+menampilkan UNKNOWN dan terminal menunjukkan
+`[scheduler] gagal ambil info server 1: Timeout saat koneksi SSH`.
+Root cause: `checkServer` dan `collectServerInfo` masing-masing membuka
+koneksi SSH terpisah (2x handshake per siklus polling per server) —
+diperbaiki jadi satu koneksi dibagi dua. Sekalian ditambah auto-refresh
+dashboard (diminta pemilik projek di tengah investigasi bug ini). Belum
+di-commit.
 
 ## Kenapa
 Pemilik projek memegang banyak server kantor + client, butuh dashboard
@@ -32,63 +37,51 @@ rencananya dipindah ke server kantor 24/7 (bukan tetap di laptop ini).
 
 ## Sudah dilakukan di session ini
 - **Tahap 1** (fondasi): selesai & commit `444931e`.
-- **Tahap 1b** (DB + form web + upload key): selesai & commit `a5c8fc8`,
-  `b0c2fe8`.
-- **Tahap 1c** (auto-discovery key, hapus upload) — diimplementasi, BELUM
-  commit:
-  - `src/services/sshKeyDiscovery.js` (baru): scan `~/.ssh/` (via
-    `os.homedir()`, override dengan env `SSH_DIR`) untuk file yang
-    berheader PEM/OpenSSH, skip `.pub`/`config`/`known_hosts`/
-    `authorized_keys`. Parser minimal `~/.ssh/config` untuk resolve
-    `IdentityFile` dari blok `Host <alias>` yang cocok persis dengan
-    hostname target (tidak dukung wildcard).
-  - `src/services/sshClient.js`: `connectWithKeyDiscovery()` — coba tiap
-    key hasil discovery satu-satu sampai auth berhasil; kegagalan TCP
-    (ECONNREFUSED/ETIMEDOUT/EHOSTUNREACH/timeout) dilempar langsung tanpa
-    lanjut coba key lain (bukan masalah key). Cache in-memory
-    `workingKeyCache` (key: `host:port:user`) supaya polling berikutnya
-    langsung pakai key yang terakhir berhasil, dicoba pertama.
-  - `src/db/schema.sql` + `serverStore.js`: kolom `ssh_key_path` dihapus
-    dari tabel `servers` sepenuhnya.
-  - `src/routes/servers.js`: hapus semua logika `multer`/upload.
-  - `src/middleware/keyUpload.js`: **dihapus** (file, bukan cuma isi).
-  - `src/views/server-form.ejs`: hapus field file input + enctype
-    multipart, tambah catatan penjelasan ke user.
-  - `package.json`: hapus `multer`, `uuid` (sudah tidak dipakai).
-  - `.env.example`: hapus `KEYS_DIR`, tambah `SSH_DIR` (override lokasi
-    `~/.ssh/`, relevan kalau nanti jalan sebagai systemd service).
-  - `README.md`: bagian baru "Cara kerja autentikasi SSH" — jelaskan
-    mekanisme, syarat (key harus TANPA passphrase, harus ada di
-    `authorized_keys` target), dan implikasi keamanan (kompromi mesin app
-    = kompromi semua server yang key-nya ada di situ).
-- **Divalidasi ke server SSH nyata** (bukan simulasi lokal, ini pertama
-  kalinya kode SSH project ini jalan ke server sungguhan):
-  - `connect()` ke `iyan@36.88.32.238:1031` berhasil pakai auto-discovery
-    key (tanpa config apa pun selain host/port/user).
-  - `docker ps -a` berhasil, menampilkan container riil (traefik,
-    midleware-thinkpark, watchtower).
-  - `sudo ss -tulnp` **gagal** dengan pesan jelas: `sudo: a password is
-    required` — user `iyan` di server itu belum di-setup NOPASSWD sudo
-    untuk `ss` (prasyarat yang didokumentasikan di README, belum
-    di-apply pemilik projek ke server ini). Bukan bug kode.
-  - End-to-end lewat web juga dicoba: tambah server lewat form (hanya
-    nama/host/port/user, tanpa upload), scheduler manual trigger, dashboard
-    menampilkan UP + latency riil (1561ms), halaman detail menampilkan
-    docker ps -a riil dan pesan error ss yang jelas.
+- **Tahap 1b** (DB + form web + upload key): selesai & commit `a5c8fc8`, `b0c2fe8`.
+- **Tahap 1c** (auto-discovery key dari `~/.ssh/`, hapus upload): selesai &
+  commit `e07609c`, `ea1ad91`. Tervalidasi ke server SSH nyata
+  (`iyan@36.88.32.238:1031`) — `connect()` dan `docker ps -a` berhasil.
+  `sudo ss -tulnp` gagal di server itu karena sudoers belum di-setup
+  (prasyarat terdokumentasi, bukan bug — lihat "Catatan penting").
+- **Perbaikan bug (sesi ini, BELUM commit)**: pemilik projek menjalankan
+  app sendiri di terminalnya, menambah server "KST-DEV"
+  (`iyan@36.88.32.238:1031`) lewat form, lalu melaporkan dashboard
+  menunjukkan UNKNOWN dan terminal menampilkan
+  `[scheduler] gagal ambil info server 1: Timeout saat koneksi SSH`.
+  - Root cause: `checkServer()` dan `collectServerInfo()` di
+    `statusChecker.js` masing-masing memanggil `connect()` sendiri —
+    2 handshake SSH penuh per server per siklus polling. Reproduksi
+    manual (3x percobaan berturut-turut) tidak selalu gagal (1.1–2.5
+    detik), tapi 2 koneksi terpisah lebih rentan kena hiccup jaringan/
+    rate-limit sesaat dibanding 1 koneksi dipakai ulang.
+  - Fix: `checkServer()` sekarang mengembalikan `{ conn, close }` saat
+    berhasil; `collectServerInfo(server, conn)` menerima koneksi itu
+    langsung, tidak connect ulang. `scheduler/index.js` memanggil
+    `result.close()` di blok `finally` setelah `collectServerInfo`.
+  - Diverifikasi lewat render EJS langsung + baca-ulang kode (BUKAN lewat
+    server HTTP baru — proses node milik pemilik projek sendiri yang
+    masih pegang port 3000 & lock `data/sxops.sqlite`, sengaja tidak
+    diganggu).
+- **Fitur auto-refresh dashboard** (diminta pemilik projek di tengah sesi
+  ini, "di web ya tambahkan refresh dong"): `dashboard.ejs` sekarang punya
+  tombol "Refresh" manual + auto-reload tiap 30 detik dengan indikator
+  hitung mundur (`refresh otomatis dalam Ns`), JS inline sederhana, tanpa
+  dependency baru.
 - Jump host (Tahap 2, `via`) **masih belum divalidasi ke server nyata** —
-  yang divalidasi baru koneksi langsung tanpa jump host.
-- `npm audit`: 0 vulnerabilities setelah hapus multer/uuid.
-- Database testing (berisi host nyata `36.88.32.238`) sudah dihapus lagi
-  sebelum sesi ditutup — tidak boleh tertinggal, itu data pemilik projek.
+  yang tervalidasi baru koneksi langsung tanpa jump host.
 
 ## Langkah berikutnya yang konkret
-1. **Commit perubahan Tahap 1c** (belum dilakukan — lihat git status).
-2. Update `.agent/context/PLAN.md`: tandai Tahap 1c selesai setelah commit,
-   catat bahwa koneksi langsung (non-jump-host) sudah tervalidasi nyata.
-3. **Beri tahu pemilik projek**: server `iyan@36.88.32.238:1031` perlu
-   `visudo -f /etc/sudoers.d/sxops` dengan isi
-   `iyan ALL=(root) NOPASSWD: /usr/sbin/ss` supaya port listen bisa
-   terbaca (lihat README.md bagian "Prasyarat di tiap server target").
+1. **Commit perubahan sesi ini** (fix koneksi ganda + auto-refresh) —
+   belum dilakukan, lihat "Berkas yang sedang disentuh".
+2. **Minta pemilik projek restart app-nya** (proses lama di terminalnya
+   masih jalan dengan kode lama) supaya fix koneksi ganda + auto-refresh
+   aktif, lalu konfirmasi apakah error timeout itu hilang.
+3. **Ingatkan pemilik projek**: server `iyan@36.88.32.238:1031` masih
+   perlu `visudo -f /etc/sudoers.d/sxops` dengan isi
+   `iyan ALL=(root) NOPASSWD: /usr/sbin/ss` supaya port listen terbaca
+   (lihat README.md "Prasyarat di tiap server target") — ini belum
+   dilakukan, error `sudo: a password is required` akan terus muncul di
+   halaman detail server sampai itu di-setup.
 4. Pemilik projek tambah server via jump host yang nyata lewat form,
    untuk memvalidasi Tahap 2 (ProxyJump) — sampai sekarang jalur itu
    masih murni teoretis, belum pernah jalan ke SSH server sungguhan.
@@ -97,46 +90,36 @@ rencananya dipindah ke server kantor 24/7 (bukan tetap di laptop ini).
 
 ## Yang sudah dicoba dan gagal
 - `sudo ss -tulnp` ke `iyan@36.88.32.238:1031` gagal karena sudoers belum
-  di-setup di server itu — bukan kegagalan kode, sudah didokumentasikan
-  sebagai prasyarat sejak Tahap 1. Item #3 di atas untuk pemilik projek.
+  di-setup di server itu — bukan kegagalan kode. Item #3 di atas.
 
 ## Berkas yang sedang disentuh
-Belum di-commit, hasil `git status --short` (working tree, tidak ada data
-testing/rahasia tersisa):
+Belum di-commit:
 ```
-M .env.example
-M README.md
-M package-lock.json
-M package.json
-M src/db/schema.sql
-D src/middleware/keyUpload.js
-M src/routes/servers.js
-M src/server.js
-M src/services/serverStore.js
-M src/services/sshClient.js
-M src/views/server-form.ejs
-?? src/services/sshKeyDiscovery.js
+M src/scheduler/index.js
+M src/services/statusChecker.js
+M src/views/dashboard.ejs
 ```
 
 ## Catatan penting
+- **Server sxops di mesin ini sedang dijalankan LANGSUNG OLEH PEMILIK
+  PROJEK** di terminalnya sendiri (bukan proses yang saya start), dengan
+  `data/sxops.sqlite` berisi server nyata "KST-DEV". Jangan matikan proses
+  node miliknya atau hapus/reset database itu tanpa izin eksplisit —
+  beda dengan sesi-sesi sebelumnya di mana saya start & stop server test
+  sendiri lalu bersihkan datanya.
 - User SSH di server target WAJIB dibatasi NOPASSWD sudo hanya untuk
   `ss` (bukan full sudo) — didokumentasikan di README.md, bukan
-  otomatis di-enforce oleh app. Contoh nyata gagal: lihat "Yang sudah
-  dicoba dan gagal" di atas.
+  otomatis di-enforce oleh app.
 - Key SSH yang dipakai app **tidak boleh punya passphrase** (app jalan
-  unattended). Key bertipe tidak standar (mis. yang tidak match regex
-  PEM/OpenSSH header) otomatis di-skip oleh `sshKeyDiscovery.js`, bukan
-  error — didiamkan secara sengaja.
-- Risiko keamanan yang disadari & didokumentasikan: karena app mencoba
-  SEMUA key di `~/.ssh/`-nya ke server manapun yang didaftarkan, kompromi
-  pada mesin tempat app berjalan (nanti: server kantor) = kompromi semua
-  server yang key-nya ada di situ. Ini trade-off desain yang disetujui
-  pemilik projek, dicatat di PLAN.md bagian Risiko.
-- Database (`data/*.sqlite*`) sengaja tidak di-commit (lihat `.gitignore`)
-  — berisi topologi jaringan client yang sensitif begitu diisi data nyata.
-- Skema DB berubah lagi (kolom `ssh_key_path` dihapus). Kalau ada database
-  lama dari sebelum Tahap 1c, harus dihapus & dibuat ulang (tidak ada
-  migrasi otomatis, belum ada data produksi yang perlu dijaga).
+  unattended). Key bertipe tidak standar otomatis di-skip oleh
+  `sshKeyDiscovery.js`, bukan error.
+- Risiko keamanan yang disadari & didokumentasikan: app mencoba SEMUA key
+  di `~/.ssh/`-nya ke server manapun yang didaftarkan — kompromi pada
+  mesin tempat app berjalan = kompromi semua server yang key-nya ada di
+  situ. Trade-off desain yang disetujui pemilik projek (PLAN.md bagian
+  Risiko).
+- Database (`data/*.sqlite*`) sengaja tidak di-commit (`.gitignore`) —
+  sekarang berisi data server nyata pemilik projek.
 
 ---
 

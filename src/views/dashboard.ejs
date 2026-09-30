@@ -11,7 +11,11 @@
   <main>
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <h1>Status Server</h1>
-      <a class="server-link" href="/servers/new"><button type="button">+ Tambah Server</button></a>
+      <div>
+        <span class="meta" id="refresh-indicator"></span>
+        <button type="button" onclick="location.reload()">Refresh</button>
+        <a class="server-link" href="/servers/new"><button type="button">+ Tambah Server</button></a>
+      </div>
     </div>
 
     <% if (servers.length === 0) { %>
@@ -57,5 +61,20 @@
       </table>
     <% } %>
   </main>
+  <script>
+    const REFRESH_MS = 30000;
+    let secondsLeft = REFRESH_MS / 1000;
+    const indicator = document.getElementById('refresh-indicator');
+
+    function tick() {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) {
+        location.reload();
+        return;
+      }
+      indicator.textContent = 'refresh otomatis dalam ' + secondsLeft + 's';
+    }
+    setInterval(tick, 1000);
+  </script>
 </body>
 </html>

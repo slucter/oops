@@ -23,15 +23,18 @@ const insertStatusHistory = db.prepare(`
  * Cek satu server: UP kalau berhasil connect SSH, UNREACHABLE kalau jump
  * host-nya sendiri yang gagal (bukan berarti server ini mati), DOWN kalau
  * server ini sendiri menolak koneksi/timeout.
+ *
+ * Balikan termasuk `conn`/`close` kalau berhasil, supaya pemanggil bisa
+ * reuse koneksi yang sama untuk collectServerInfo tanpa handshake SSH
+ * kedua (lebih cepat, lebih kecil peluang timeout).
  */
 async function checkServer(server) {
   const startedAt = Date.now();
   try {
     const { conn, close } = await connect(server);
     const latencyMs = Date.now() - startedAt;
-    close();
     recordResult(server.id, 'up', latencyMs, null);
-    return { status: 'up', latencyMs };
+    return { status: 'up', latencyMs, conn, close };
   } catch (err) {
     const status = server.via && isJumpHostFailure(err) ? 'unreachable' : 'down';
     recordResult(server.id, status, null, err.message);
@@ -54,21 +57,16 @@ function recordResult(serverId, status, latencyMs, errorMessage) {
 }
 
 /**
- * Jalankan docker ps -a dan sudo ss -tulnp pada server yang UP.
- * Dipanggil terpisah dari checkServer supaya tahap status tetap cepat.
+ * Jalankan docker ps -a dan sudo ss -tulnp lewat koneksi SSH yang sudah
+ * terbuka (hasil checkServer), supaya tidak perlu handshake SSH kedua.
  */
-async function collectServerInfo(server) {
-  const { conn, close } = await connect(server);
-  try {
-    const portResult = await execCommand(conn, 'sudo ss -tulnp');
-    savePortSnapshot(server.id, portResult);
+async function collectServerInfo(server, conn) {
+  const portResult = await execCommand(conn, 'sudo ss -tulnp');
+  savePortSnapshot(server.id, portResult);
 
-    if (server.hasDocker) {
-      const dockerResult = await execCommand(conn, 'docker ps -a');
-      saveDockerSnapshot(server.id, dockerResult);
-    }
-  } finally {
-    close();
+  if (server.hasDocker) {
+    const dockerResult = await execCommand(conn, 'docker ps -a');
+    saveDockerSnapshot(server.id, dockerResult);
   }
 }
 
