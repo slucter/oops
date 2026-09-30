@@ -175,14 +175,55 @@ dicek memakai key yang sudah ada di `~/.ssh/` tanpa konfigurasi tambahan.
 ### Tahap 2 — Jump host / ProxyJump · kecil-menengah
 Tujuan: server internal (contoh `user@10.10.10.10` di balik bastion) bisa
 dicek statusnya lewat chaining SSH.
-- [ ] Modul ProxyJump: buka koneksi ke bastion, forward stream ke target
-- [ ] Dukung multi-level (kalau ada) atau minimal 1 level jump sesuai kebutuhan
-      nyata saat ini
-- [ ] Tampilkan relasi bastion → server internal di UI (grouping/nesting)
-- [ ] Uji: matikan bastion → server di baliknya otomatis tampil DOWN
+- [x] Modul ProxyJump murni via `ssh2` (`forwardOut` + koneksi kedua di
+      atas stream): buka koneksi ke bastion, forward stream ke target
+- [x] Tampilkan relasi bastion → server internal di UI (grouping/nesting)
+- [x] Uji: matikan bastion → server di baliknya otomatis tampil DOWN
       (bukan error tak jelas)
-Selesai kalau: minimal satu server internal riil berhasil dicek lewat jump
-host yang riil, dan status tergroup jelas di bawah bastion-nya.
+
+**Revisi 2026-09-30 (setelah dicoba ke server nyata):** pemilik projek
+menambahkan server nyata via jump host pertama
+(`Load Balancer KST` di `10.10.10.5:22`, via `KST-DEV`). Ternyata di setup
+nyata dia, private key untuk login ke `10.10.10.5` **tersimpan di dalam
+server KST-DEV itu sendiri** (bukan di laptop/server tempat app berjalan).
+Ini cara kerja SSH-nya sehari-hari: dari laptop dia SSH ke KST-DEV (key A,
+ada di laptopnya), lalu DARI DALAM KST-DEV dia `ssh user@10.10.10.5` pakai
+key B yang cuma ada di `~/.ssh/` milik KST-DEV.
+
+Pendekatan ProxyJump murni (`ssh2` `forwardOut` lalu auth ulang dari
+mesin app) **tidak cocok** untuk pola ini — app tidak pernah punya akses
+ke key B, dan tidak seharusnya (key itu tidak perlu disalin keluar dari
+KST-DEV). Diganti dengan pendekatan **shell-out**: untuk server yang punya
+`via`, app connect biasa ke jump host (pakai auto-discovery key normal),
+lalu **menjalankan command `ssh <user>@<host> -p <port> <command>` di
+dalam shell jump host itu** — persis meniru apa yang pemilik projek
+lakukan manual. Otomatis pakai key yang sudah ada di jump host, tidak
+perlu app tahu key itu sama sekali.
+
+Implikasi:
+- [ ] `sshClient.js`: untuk server dengan `via`, ganti dari
+      `forwardOut`+koneksi kedua jadi `execCommand` yang membungkus
+      command asli dengan `ssh -o BatchMode=yes -o ConnectTimeout=N
+      <user>@<host> -p <port> -- <command>` dijalankan di koneksi ke
+      jump host. Host key checking: pertimbangkan
+      `-o StrictHostKeyChecking=accept-new` supaya tidak macet nunggu
+      prompt (jump host jalan unattended)
+- [ ] Cek status UP/DOWN untuk server `via`: tidak lagi "connect lalu
+      langsung tahu", tapi lewat exit code command probe di jump host
+      (mis. `ssh ... true` — exit 0 berarti UP)
+- [ ] `docker ps -a` / `sudo ss -tulnp` untuk server `via`: command asli
+      dibungkus jadi `ssh <target> -- 'sudo ss -tulnp'` dijalankan dari
+      jump host, bukan dari koneksi langsung ke target
+- [ ] Bedakan tiga kegagalan: jump host sendiri tak terjangkau
+      (`unreachable`), `ssh` command di jump host gagal auth/connect ke
+      target (`down` untuk target), vs command di target sukses tapi
+      hasilnya error (mis. sudo gagal — bukan status DOWN, cuma pesan
+      error di docker/port snapshot)
+- [ ] Uji ulang ke `Load Balancer KST` (10.10.10.5:22 via KST-DEV) —
+      server nyata pertama yang akan memvalidasi pendekatan baru ini
+Selesai kalau: `Load Balancer KST` berhasil menunjukkan status UP/DOWN
+yang benar, dan (kalau applicable) info docker/port-nya, memakai key yang
+tetap tinggal di KST-DEV — tidak ada key yang perlu disalin ke mesin app.
 
 ### Tahap 3 — Docker & port info · menengah
 Tujuan: untuk server yang UP dan `has_docker: true`, tampilkan hasil
