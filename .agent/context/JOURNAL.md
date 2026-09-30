@@ -10,6 +10,119 @@ Aturan: jangan pernah menulis nilai rahasia di sini. Sebut namanya saja
 
 <!-- Entri baru ditambahkan tepat di bawah baris ini -->
 
+## 2026-09-30 · Update agent dari dashboard + agent multi-runtime (Python/Node)
+
+**Agent:** Claude Code (Opus 5)
+**Branch:** `development` · **Commit:** `fff5801`
+
+### Selesai
+- **Update agent dari dashboard** (`574f4e1`): badge versi per client, tombol
+  Update di baris yang tertinggal, dan tombol "Update semua" di banner.
+  Agent melaporkan versinya lewat payload metrik ke kolom baru
+  `clients.agent_version`.
+  - Perbandingan versi **per-komponen sebagai angka**, bukan string: `1.10.0`
+    harus lebih baru dari `1.9.0`, padahal sebagai string lebih kecil. Kalau
+    dibandingkan sebagai string, sistem diam-diam berhenti menawarkan update
+    begitu minor version mencapai dua digit.
+  - Self-update mengunduh ke `.update-tmp` dulu dan baru menyentuh berkas asli
+    setelah semuanya lengkap — kalau koneksi putus di tengah, yang tersisa bukan
+    berkas terpotong yang membuat agent tidak pernah hidup lagi.
+  - Balasan dikirim **sebelum** restart. Setelah systemd mematikan proses,
+    socket ikut mati; kalau balasan dikirim setelah itu, update yang berhasil
+    terlihat seperti timeout.
+  - Update massal **berurutan, bukan paralel**: kegagalan pertama menghentikan
+    sisanya, jadi versi agent yang rusak merusak satu client, bukan semuanya.
+- **Agent multi-runtime** (`574f4e1`): installer tidak lagi memaksa
+  `apt/yum install nodejs`. Urutan pilihan: **Python 3.6+ → Node 14+ → Node
+  portable** ke `~/.oops-agent` (tanpa sudo).
+  - `agent/agent.py` mengimplementasikan **WebSocket RFC 6455 dari nol** di atas
+    soket standar — tanpa pip sama sekali. Termasuk verifikasi
+    `Sec-WebSocket-Accept`, masking frame klien, penanganan fragmentasi,
+    ping/pong, dan batas ukuran frame 1 MB.
+  - Alpine/musl ditolak dengan pesan yang menyebut solusinya, karena Node resmi
+    tidak menyediakan build musl dan binary glibc gagal start di sana dengan
+    pesan yang membingungkan.
+- **Penjaga konsistensi versi** (`fff5801`): `agent/cek-versi.js`, terpasang
+  sebagai `npm test`. `agent.py` menyimpan versinya sendiri (tidak bisa membaca
+  `version.js`), jadi ada dua sumber yang harus dijaga manual.
+
+### Belum selesai
+- **Fitur update belum pernah dipakai dari UI oleh mata manusia.** Alur HTTP-nya
+  sudah diuji sampai produksi, tapi tombol, badge, dan banner-nya belum pernah
+  saya lihat terender — tidak ada browser pane di session ini.
+- **Enam client produksi masih menjalankan agent lama** (`agent_version` =
+  "belum lapor"). Ini konsekuensi yang memang sudah diketahui: agent lama tidak
+  punya kode untuk menerima perintah update. Pemilik projek sudah memilih jalur
+  "sekali manual, seterusnya otomatis" — jalankan ulang satu baris `curl`
+  install di tiap client sekali saja, setelah itu tombol dashboard berfungsi
+  selamanya.
+- **Cabang Node portable belum diuji sebagai instalasi utuh.** Yang sudah
+  dibuktikan: deteksi arsitektur, URL valid, dan unduh+ekstrak sungguhan
+  (v20.18.1, npm 10.8.2, **168 MB**). Yang belum: instalasi penuh lewat cabang
+  itu, karena semua server yang tersedia sudah punya Python.
+- Telegram masih belum pernah mengirim pesan nyata (bot belum dibuat).
+
+### Keputusan
+- **Python didahulukan atas Node**, berdasarkan pengukuran bukan selera: agent
+  Python **~19 KB tanpa dependensi apa pun**, agent Node butuh paket `ws` lewat
+  npm, dan Node portable memakan **168 MB** terpasang. Fitur ketiganya identik.
+  Awalnya saya menempatkan Node lebih dulu; dibalik setelah angka 168 MB keluar
+  dan pemilik projek menyoroti bahwa Python lebih ringan.
+- **WebSocket Python ditulis sendiri, bukan lewat pip.** `pip` sering tidak ada
+  di server minimal, butuh akses PyPI yang kadang diblokir, dan bisa merusak
+  paket Python sistem. Konsekuensi: kodenya lebih panjang dan protokolnya
+  tanggung jawab kita — karena itu diuji langsung terhadap server `ws` sungguhan,
+  bukan hanya unit test.
+- **`agent_version` disimpan TANPA `COALESCE`**, berbeda dari kolom IP di query
+  yang sama. Agent lama tidak mengirim field ini, dan justru ketiadaannya yang
+  menandakan perlu update. Kalau dipertahankan pakai `COALESCE`, agent yang
+  di-downgrade akan terus tampil versi baru dan tidak pernah ditawari update.
+
+### Jalan buntu
+- **`clientStore.mapRow()` memetakan kolom DB ke camelCase secara eksplisit**,
+  dan `agent_version` tidak masuk daftar itu. Akibatnya `needsUpdate()` membaca
+  `undefined` dan menganggap **semua** client perlu update — termasuk yang sudah
+  terbaru. Kegagalan yang tidak terlihat seperti kegagalan: tombol Update muncul
+  selamanya tanpa error apa pun. Ketemu lewat uji ujung ke ujung, bukan
+  pembacaan kode. **Kalau menambah kolom ke tabel `clients`, tambahkan juga di
+  `mapRow()`.**
+- **Backtick di dalam template literal JavaScript menutup string itu.** Komentar
+  yang menyebut paket `` `ws` `` di dalam `buildInstallScript()` membuat modul
+  gagal di-parse. Pakai kutip tunggal di dalam template literal.
+- Dugaan awal saya keliru: saya sempat menyangka `better-sqlite3` men-*cache*
+  statement `SELECT *` sehingga kolom hasil `ALTER TABLE` tidak terbaca. Diuji
+  langsung — SQLite memang me-*recompile*, jadi bukan itu penyebabnya. Sempat
+  menghabiskan waktu di jalan yang salah karena menduga sebelum menguji.
+- Uji installer dengan `HOME` yang dialihkan tidak bisa memverifikasi systemd
+  (unit file tidak dibaca dari sana). Yang berhasil: ambil `ExecStart` dan
+  `Environment` dari unit file yang dihasilkan, lalu jalankan manual.
+
+### Langkah berikutnya
+1. Buka `https://mon.kawandev.xyz` dan pastikan kolom Agent, badge versi, banner,
+   dan tombol Update tampil benar — belum pernah diverifikasi secara visual.
+2. Jalankan ulang perintah `curl` install **sekali** di tiap client produksi
+   supaya mereka bisa di-update dari dashboard seterusnya. Perintahnya ada di
+   halaman Edit tiap client.
+3. Naikkan `AGENT_VERSION` di **`agent/version.js` DAN `agent/agent.py`**
+   bersamaan setiap kali mengubah berkas di `agent/` — `npm test` akan menolak
+   kalau lupa salah satu.
+4. Buat bot Telegram lalu uji dari `/settings`.
+5. Kalau semua beres, merge `development` -> `master`.
+
+### Catatan
+- Nama service diteruskan ke agent sebagai `OOPS_SERVICE_NAME` supaya self-update
+  bisa me-restart service yang benar, bukan menebak namanya.
+- Agent Python diuji **berdampingan** dengan agent Node di produksi (KST Lab,
+  Python 3.12.3) lewat `wss://` dan nginx. Hasil identik: mem 32134/2278 MB,
+  disk 105/25 GB, `cpu_count` 32, IP internal 10.10.10.15, IP publik terdeteksi,
+  latency 1 ms lewat ping/pong, perintah `docker ps`/`ss` dijawab.
+- Instalasi `curl | bash` sungguhan dari produksi diuji utuh: memilih Python
+  otomatis, unduh 19 KB, unit systemd benar (`https://` -> `wss://`, `-u` untuk
+  log), agent terhubung, dan **self-update berhasil lewat endpoint dashboard yang
+  sama dengan tombolnya** (`.bak` terbentuk, balasan sampai sebelum restart).
+- Semua client dan berkas uji di produksi sudah dibersihkan; 6 client asli
+  dikonfirmasi tetap UP setelahnya.
+
 ## 2026-09-30 · Sistem alert + push notification browser, live di produksi
 
 **Agent:** Claude Code (Opus 5)
