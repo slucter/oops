@@ -117,6 +117,7 @@
 
     function pantau(jobId) {
       var gagalBerturut = 0;
+      var mulai = Date.now();
       var timer = setInterval(function () {
         fetch('/peta/' + jobId, { headers: { 'Accept': 'application/json' } })
           .then(function (r) {
@@ -126,8 +127,13 @@
           .then(function (data) {
             gagalBerturut = 0;
             if (!data.selesai) {
+              var lewat = Math.round((Date.now() - mulai) / 1000);
               ringkas.textContent = data.tahap || 'memindai…';
-              isi.innerHTML = '<div class="meta">&#10227; Memindai isi disk. Untuk server dengan banyak berkas ini bisa memakan beberapa menit — halaman boleh ditinggal, hasilnya tetap dihitung.</div>';
+              isi.innerHTML = '<div class="meta">&#10227; ' + esc(data.tahap || 'Memindai isi disk')
+                + ' · berjalan ' + (lewat < 60 ? lewat + ' detik' : Math.floor(lewat / 60) + ' menit ' + (lewat % 60) + ' detik')
+                + '<br><span class="peta-sabar">Lama pemindaian tergantung jumlah berkas di server itu, bukan ukuran disknya. '
+                + 'Halaman ini boleh ditinggal atau ditutup — pemindaian tetap berjalan dan hasilnya bisa dilihat lagi '
+                + 'kalau Anda kembali dalam 30 menit.</span></div>';
               return;
             }
             clearInterval(timer);

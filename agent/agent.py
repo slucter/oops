@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.4.0'
+AGENT_VERSION = '1.4.1'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -771,8 +771,20 @@ SKIP_ISI = ['node_modules', '.git', '.cache/yarn', '.venv', 'vendor/bundle']
 # menyesatkan (mis. /proc/kcore tampak sebesar seluruh RAM).
 SKIP_MOUNT = ['/proc', '/sys', '/dev', '/run', '/snap']
 
+# Berkas besar milik sistem yang TIDAK boleh dihapus. Menampilkannya di
+# daftar "file besar" menyesatkan: orang melihat /swap.img 8 GB di urutan
+# teratas lalu mengira itu sampah yang bisa dibuang, padahal menghapusnya
+# mematikan swap dan bisa membuat server kehabisan memori.
+SKIP_FILE = ['/swapfile', '/swap.img', '/swap', '/hiberfil.sys', '/pagefile.sys']
 
-def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50):
+
+def _fmt_gb(kb):
+    if not kb:
+        return '?'
+    return '%.1f GB' % (kb / 1024 / 1024)
+
+
+def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
     """
     Petakan folder yang membuat disk bengkak, sampai ke folder terdalam.
 
@@ -792,34 +804,78 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50):
     hasil = {'root': '/', 'folder': [], 'file': [], 'totalKb': None,
              'ambangKb': None, 'terpotong': False, 'catatan': []}
 
-    # Total dulu, untuk menghitung ambang relatif.
-    ok, out = _jalan('du -xsk / 2>/dev/null', timeout=600)
-    total_kb = None
-    if ok and out:
-        try:
-            total_kb = int(out.split()[0])
-        except (ValueError, IndexError):
-            pass
-    if not total_kb:
-        st = os.statvfs('/')
-        total_kb = ((st.f_blocks - st.f_bfree) * st.f_frsize) // 1024
+    # Total dibaca dari statvfs, BUKAN dari `du` terpisah.
+    #
+    # Versi pertama menjalankan `du -xsk /` hanya untuk mendapat total, lalu
+    # `du -xk /` lagi untuk pohonnya — dua kali melintasi seluruh disk untuk
+    # angka yang statvfs berikan seketika. Di server dengan banyak berkas,
+    # itu melipatgandakan waktu tunggu tanpa alasan.
+    st = os.statvfs('/')
+    total_kb = ((st.f_blocks - st.f_bfree) * st.f_frsize) // 1024
     hasil['totalKb'] = total_kb
 
     ambang_kb = max(1024, int(total_kb * min_persen / 100))
     hasil['ambangKb'] = ambang_kb
 
-    # Prefix nice/ionice kalau tersedia: pemetaan adalah pekerjaan latar,
-    # tidak boleh merebut I/O dari layanan yang sedang berjalan.
-    prefix = ''
-    if _punya('ionice'):
-        prefix += 'ionice -c3 '
-    if _punya('nice'):
-        prefix += 'nice -n 19 '
+    # `nice` saja, TANPA `ionice -c3`.
+    #
+    # ionice kelas 3 (idle) berarti pemindaian hanya jalan saat tidak ada
+    # proses lain yang meminta I/O sama sekali. Di server yang sibuk, itu
+    # membuatnya nyaris tidak maju — persis yang dilaporkan pemilik projek.
+    # `nice` sudah cukup untuk mengalah pada CPU tanpa membuat pemindaian
+    # kelaparan I/O.
+    prefix = 'nice -n 19 ' if _punya('nice') else ''
 
     exclude = ' '.join("--exclude='*/%s/*'" % s for s in SKIP_ISI)
     exclude += ' ' + ' '.join("--exclude='%s/*'" % s for s in SKIP_MOUNT)
 
-    ok, out = _jalan('%sdu -xk %s / 2>/dev/null' % (prefix, exclude), timeout=1800)
+    # `du` dan `find` melintasi disk yang sama, jadi dijalankan BERSAMAAN.
+    # Berurutan berarti menunggu dua kali lintasan penuh; bersamaan, yang
+    # kedua sebagian besar terlayani dari cache filesystem yang baru saja
+    # dihangatkan oleh yang pertama.
+    hasil_find = {'out': None}
+
+    def cari_file_besar():
+        if maks_file <= 0:
+            return
+        cari_exclude = ' '.join("-path '*/%s' -prune -o" % s for s in SKIP_ISI)
+        cari_exclude += ' ' + ' '.join("-path '%s' -prune -o" % s for s in SKIP_MOUNT)
+        # Berkas swap/hibernasi dikecualikan supaya tidak disangka sampah.
+        cari_exclude += ' ' + ' '.join("-path '%s' -prune -o" % s for s in SKIP_FILE)
+        perintah = (
+            "%sfind / -xdev %s -type f -size +%dM -printf '%%s\\t%%p\\n' 2>/dev/null "
+            "| sort -rn | head -%d" % (prefix, cari_exclude, min_file_mb, maks_file)
+        )
+        ok_f, out_f = _jalan(perintah, timeout=1800)
+        if ok_f and out_f:
+            hasil_find['out'] = out_f
+
+    t_find = threading.Thread(target=cari_file_besar, daemon=True)
+    t_find.start()
+
+    # Kabar berkala selama `du` berjalan. Tanpa ini layar hanya menampilkan
+    # satu pesan statis berjam-jam dan tidak ada cara membedakan "sedang
+    # bekerja" dari "macet" — pemilik projek melaporkan persis kebingungan itu.
+    berhenti_kabar = threading.Event()
+
+    def kabar_berkala():
+        detik = 0
+        while not berhenti_kabar.wait(5):
+            detik += 5
+            if lapor:
+                try:
+                    lapor('memindai folder… (%d detik, %s terpakai)'
+                          % (detik, _fmt_gb(total_kb)))
+                except Exception:
+                    pass
+
+    t_kabar = threading.Thread(target=kabar_berkala, daemon=True)
+    t_kabar.start()
+
+    try:
+        ok, out = _jalan('%sdu -xk %s / 2>/dev/null' % (prefix, exclude), timeout=1800)
+    finally:
+        berhenti_kabar.set()
     if not ok and not out:
         hasil['catatan'].append('Pemindaian gagal atau tidak menghasilkan apa pun.')
         return hasil
@@ -852,25 +908,23 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50):
         hasil['terpotong'] = True
     hasil['folder'] = folder
 
-    # File besar individual.
-    if maks_file > 0:
-        cari_exclude = ' '.join("-path '*/%s' -prune -o" % s for s in SKIP_ISI)
-        cari_exclude += ' ' + ' '.join("-path '%s' -prune -o" % s for s in SKIP_MOUNT)
-        perintah = (
-            "%sfind / -xdev %s -type f -size +%dM -printf '%%s\\t%%p\\n' 2>/dev/null "
-            "| sort -rn | head -%d" % (prefix, cari_exclude, min_file_mb, maks_file)
-        )
-        ok, out = _jalan(perintah, timeout=1800)
-        if ok and out:
-            for baris in out.split('\n'):
-                bagian = baris.split('\t', 1)
-                if len(bagian) != 2:
-                    continue
-                try:
-                    hasil['file'].append({'path': bagian[1].strip(),
-                                          'kb': int(bagian[0]) // 1024})
-                except ValueError:
-                    continue
+    # Tunggu pencarian file besar yang berjalan bersamaan tadi.
+    if lapor and t_find.is_alive():
+        try:
+            lapor('mencari berkas besar…')
+        except Exception:
+            pass
+    t_find.join(timeout=1800)
+    if hasil_find['out']:
+        for baris in hasil_find['out'].split('\n'):
+            bagian = baris.split('\t', 1)
+            if len(bagian) != 2:
+                continue
+            try:
+                hasil['file'].append({'path': bagian[1].strip(),
+                                      'kb': int(bagian[0]) // 1024})
+            except ValueError:
+                continue
 
     return hasil
 
@@ -898,8 +952,12 @@ def handle_peta(ws, req_id):
                    'pesan': 'Pemetaan lain masih berjalan di server ini.'})
             return
         try:
-            kirim({'type': 'peta_progress', 'id': req_id, 'tahap': 'memindai folder…'})
-            hasil = _peta_disk()
+            kirim({'type': 'peta_progress', 'id': req_id, 'tahap': 'memulai pemindaian…'})
+
+            def lapor(tahap):
+                kirim({'type': 'peta_progress', 'id': req_id, 'tahap': tahap})
+
+            hasil = _peta_disk(lapor=lapor)
             kirim({'type': 'peta_progress', 'id': req_id, 'tahap': 'menyusun hasil…'})
             hasil.update({'type': 'peta_result', 'id': req_id, 'ok': True})
             kirim(hasil)
