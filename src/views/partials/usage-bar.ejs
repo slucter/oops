@@ -1,5 +1,12 @@
 <%
-  // locals: percent (number|null), label (string, opsional)
+  // locals: percent (number|null), barLabel (string, opsional)
+  //
+  // Nama localnya `barLabel`, bukan `label`, DENGAN SENGAJA. EJS mewariskan
+  // seluruh local halaman induk ke partial, jadi local bernama umum seperti
+  // `label` akan tertangkap dari induknya tanpa ada yang memintanya. Itu
+  // pernah terjadi: nama link share ("Test Expire Share 9 Hours") muncul di
+  // setiap sel RAM dan Disk, karena halaman share punya local `label`.
   const p = typeof percent === 'number' ? percent : null;
   const barClass = p == null ? '' : p >= 90 ? 'usage-crit' : p >= 75 ? 'usage-warn' : 'usage-ok';
-%><% if (p == null) { %><span class="meta">—</span><% } else { %><span class="usage-cell"><span class="usage-bar"><span class="usage-bar-fill <%= barClass %>" style="width: <%= Math.min(p, 100) %>%;"></span></span><span class="usage-label"><%= p %>%<% if (typeof label !== 'undefined' && label) { %> <%= label %><% } %></span></span><% } %>
+  const teks = typeof barLabel !== 'undefined' && barLabel ? barLabel : null;
+%><% if (p == null) { %><span class="meta">—</span><% } else { %><span class="usage-cell"><span class="usage-bar"><span class="usage-bar-fill <%= barClass %>" style="width: <%= Math.min(p, 100) %>%;"></span></span><span class="usage-label"><%= p %>%<% if (teks) { %> <%= teks %><% } %></span></span><% } %>

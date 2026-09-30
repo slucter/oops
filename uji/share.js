@@ -95,6 +95,13 @@ function req(method, pathname, body) {
   cek('client yang dibagikan tampil', r.body.includes('Alpha') && r.body.includes('Beta'));
   cek('client yang TIDAK dibagikan tidak bocor', !r.body.includes('Rahasia'));
   cek('badge view-only tampil', r.body.includes('View only'));
+  cek('judul share tampil sekali sebagai heading', /class="share-label-bar"/.test(r.body));
+  // Regresi: EJS mewariskan local halaman induk ke partial, jadi local
+  // "label" milik halaman share pernah tertangkap partial usage-bar (yang
+  // dulu juga menamai local opsionalnya "label") — nama link bocor ke SETIAP
+  // sel RAM dan Disk. Partial itu kini memakai "barLabel".
+  cek('judul TIDAK bocor ke sel RAM/Disk',
+    (r.body.match(/class="usage-label">[^<]*Uji/g) || []).length === 0);
 
   console.log('\n=== 3. Halaman share tidak menawarkan aksi apa pun ===');
   cek('tidak ada tombol Remove', !/class="[^"]*btn-danger/.test(r.body));

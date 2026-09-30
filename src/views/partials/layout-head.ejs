@@ -718,12 +718,29 @@
       color: var(--text-faint); font-size: .68rem;
       margin-left: .6rem; white-space: nowrap;
     }
+    /* Judul link share: ini penanda utama halaman bagi penerima — dia perlu
+       tahu sedang melihat laporan yang mana, terutama kalau menerima beberapa
+       link. Karena itu dibuat sebesar heading, bukan keterangan kecil. */
     .share-label-bar {
-      background: var(--panel-head);
+      background: linear-gradient(to bottom, var(--panel-head), transparent);
       border-bottom: 1px solid var(--line);
-      padding: .45rem 1.8rem;
-      color: var(--text-dim); font-size: .74rem;
-      letter-spacing: .04em;
+      padding: 1.1rem 1.8rem .9rem;
+      color: var(--accent);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    .share-label-bar::before {
+      content: "▤";
+      color: var(--accent);
+      opacity: .55;
+      font-size: .95rem;
+    }
+    @media (max-width: 760px) {
+      .share-label-bar { padding: .9rem 1rem .8rem; font-size: .92rem; }
     }
 
     .btn-icon { padding-left: .5rem; padding-right: .5rem; font-size: .8rem; line-height: 1; }
