@@ -9,9 +9,10 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "cek-versi": "node agent/cek-versi.js",
-    "test": "node agent/cek-versi.js",
+    "test": "node agent/cek-versi.js && node uji/update-agent.js && node uji/uninstall.js",
     "cek-versi-naik": "node agent/cek-versi-naik.js",
-    "pasang-hook": "git config core.hooksPath .githooks"
+    "pasang-hook": "git config core.hooksPath .githooks",
+    "uji": "node uji/update-agent.js && node uji/uninstall.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

@@ -23,6 +23,15 @@ const INTERVAL_MS = Number(process.env.OOPS_INTERVAL_MS || 30000);
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 60000;
 
+// Berapa kali token boleh ditolak (HTTP 401) sebelum agent menyimpulkan
+// dirinya memang sudah dicabut lalu berhenti. Tidak langsung di penolakan
+// pertama: database server bisa saja sedang di-restore dari backup, dan
+// agent yang menghapus dirinya karena gangguan sesaat tidak bisa dibatalkan
+// dari jarak jauh — harus datang ke server itu lagi secara manual.
+const MAX_TOKEN_REJECTIONS = Number(process.env.OOPS_MAX_TOKEN_REJECTIONS || 10);
+
+let rejectedCount = 0;
+
 if (!SERVER_URL || !TOKEN) {
   console.error('[agent] OOPS_SERVER_URL dan OOPS_TOKEN wajib diset.');
   process.exit(1);
@@ -58,8 +67,24 @@ function connect() {
   ws.on('open', () => {
     console.log('[agent] terkoneksi ke server monitoring');
     reconnectDelay = RECONNECT_BASE_MS;
+    rejectedCount = 0; // koneksi berhasil: penolakan sebelumnya tidak relevan lagi
     sendMetric();
     metricTimer = setInterval(sendMetric, INTERVAL_MS);
+  });
+
+  // Server menolak token sebelum handshake selesai (HTTP 401). Ini satu-satunya
+  // sinyal bahwa client sudah dihapus dari dashboard — `close` biasa tidak bisa
+  // membedakannya dari server yang sedang restart.
+  ws.on('unexpected-response', (_req, res) => {
+    if (res.statusCode === 401) {
+      rejectedCount++;
+      console.error(`[agent] token ditolak server (401), percobaan ke-${rejectedCount}`);
+      if (rejectedCount >= MAX_TOKEN_REJECTIONS) {
+        selfUninstall('token sudah dicabut dari dashboard');
+        return;
+      }
+    }
+    res.resume(); // buang body, kalau tidak socket-nya menggantung
   });
 
   ws.on('message', (raw) => {
@@ -75,6 +100,10 @@ function connect() {
     }
     if (msg.type === 'update_agent' && msg.id) {
       handleSelfUpdate(msg.id);
+      return;
+    }
+    if (msg.type === 'uninstall_agent' && msg.id) {
+      handleUninstallCommand(msg.id);
     }
   });
 
@@ -320,6 +349,116 @@ function handleSelfUpdate(id) {
     // agent tetap jalan dengan versi lama, tidak ada yang perlu dipulihkan.
     reply(false, `Update gagal: ${err.message}`);
   }
+}
+
+/**
+ * Hapus agent ini dari server tempatnya berjalan: matikan service, cabut
+ * dari systemd, lalu hapus direktori kerjanya.
+ *
+ * Urutannya penting. `disable` dijalankan SEBELUM proses ini mati, karena
+ * setelah itu tidak ada lagi yang bisa menjalankan perintah apa pun — kalau
+ * dibalik, unit-nya tetap enabled dan agent hidup lagi begitu server
+ * di-reboot, justru setelah "berhasil" di-uninstall.
+ *
+ * Direktori dihapus paling akhir lewat proses terpisah yang detached: kita
+ * sedang menghapus folder tempat berkas yang sedang dieksekusi berada, jadi
+ * penghapusnya tidak boleh ikut mati bersama proses ini.
+ */
+function selfUninstall(alasan) {
+  const fs = require('fs');
+  const { spawn } = require('child_process');
+  const dir = __dirname;
+
+  console.log(`[agent] uninstall: ${alasan}`);
+
+  const env = { ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}` };
+  const jalankan = (cmd) => {
+    try {
+      execSync(cmd, { timeout: 15000, stdio: 'pipe', env });
+      return true;
+    } catch {
+      return false; // systemd mungkin tidak dipakai; bukan alasan berhenti
+    }
+  };
+
+  // Disable dulu — lihat penjelasan di atas.
+  jalankan(`systemctl --user disable ${shellEscape(SERVICE_NAME)}`);
+
+  const home = process.env.HOME || '';
+  const unitFile = `${home}/.config/systemd/user/${SERVICE_NAME}.service`;
+  try {
+    if (home && fs.existsSync(unitFile)) fs.unlinkSync(unitFile);
+  } catch (err) {
+    console.error('[agent] gagal menghapus unit file:', err.message);
+  }
+
+  // Penghapus dijalankan detached dengan jeda: ia harus tetap hidup setelah
+  // proses ini mati, karena yang dihapus adalah folder berkas yang sedang
+  // berjalan. `stop` dipanggil di dalamnya supaya systemd tidak menganggap
+  // ini crash lalu me-restart kita di tengah penghapusan.
+  // Pembersih HARUS lepas dari cgroup service ini.
+  //
+  // Ditemukan lewat pengujian di Linux, bukan dugaan: proses anak biasa —
+  // bahkan yang detached — tetap berada di cgroup unit systemd, dan systemd
+  // membunuh seluruh cgroup saat unit berhenti. Jadi pembersih ikut mati
+  // sebelum sempat menghapus apa pun, lalu Restart=always menghidupkan agent
+  // kembali. Hasilnya: agent mencoba mencabut diri berulang-ulang tanpa
+  // pernah berhasil.
+  //
+  // `systemd-run` menjalankan perintah sebagai unit transient miliknya
+  // sendiri, di luar cgroup kita, sehingga selamat saat unit ini dimatikan.
+  const perintah = [
+    'sleep 1',
+    `systemctl --user stop ${shellEscape(SERVICE_NAME)} 2>/dev/null || true`,
+    `systemctl --user reset-failed ${shellEscape(SERVICE_NAME)} 2>/dev/null || true`,
+    'systemctl --user daemon-reload 2>/dev/null || true',
+    `rm -rf ${shellEscape(dir)}`,
+  ].join('; ');
+
+  let dijadwalkan = false;
+  try {
+    execSync(
+      `systemd-run --user --collect --quiet --unit oops-cleanup-${Date.now()} ` +
+      `/bin/sh -c ${shellEscape(perintah)}`,
+      { timeout: 15000, stdio: 'pipe', env }
+    );
+    dijadwalkan = true;
+  } catch (err) {
+    console.error('[agent] systemd-run tidak tersedia:', err.message);
+  }
+
+  if (!dijadwalkan) {
+    // Tanpa systemd-run (mis. agent dijalankan manual, bukan sebagai
+    // service), tidak ada cgroup yang membunuh kita — proses terpisah biasa
+    // sudah cukup.
+    try {
+      const anak = spawn('/bin/sh', ['-c', perintah], { detached: true, stdio: 'ignore', env });
+      anak.unref();
+    } catch (err) {
+      console.error('[agent] gagal menjadwalkan pembersihan direktori:', err.message);
+    }
+  }
+
+  console.log('[agent] service dicabut, direktori akan dihapus. Selamat tinggal.');
+  // Exit 0, bukan bukan-nol: ini penghentian yang disengaja. Kode error akan
+  // membuat systemd menganggapnya crash lalu me-restart kita.
+  process.exit(0);
+}
+
+/** Uninstall atas perintah dashboard — balas dulu, baru bersihkan. */
+function handleUninstallCommand(id) {
+  try {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'uninstall_result', id, ok: true,
+        message: 'Agent dicabut dari server ini.',
+      }));
+    }
+  } catch {
+    // koneksi sudah mati; pembersihan di bawah tetap jalan
+  }
+  // Jeda supaya balasan benar-benar terkirim sebelum socket ikut mati.
+  setTimeout(() => selfUninstall('diperintahkan dari dashboard'), 500);
 }
 
 connect();

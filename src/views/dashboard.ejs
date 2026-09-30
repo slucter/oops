@@ -34,6 +34,26 @@
       </div>
     <% } %>
 
+    <% if (dihapus) { %>
+      <% if (adaSisa) { %>
+        <div class="banner-sisa">
+          <span>⚠</span>
+          <span>
+            <b><%= dihapus %></b> dihapus dari dashboard, tapi agent di server itu
+            <b>belum tercabut</b> — kemungkinan sedang offline atau menjalankan agent
+            versi lama. Ia akan terus mencoba menyambung dengan token yang sudah tidak
+            berlaku. Bersihkan manual di server tersebut:
+            <code>systemctl --user disable --now oops-agent &amp;&amp; rm -rf ~/.oops-agent ~/.config/systemd/user/oops-agent.service</code>
+          </span>
+        </div>
+      <% } else { %>
+        <div class="banner-ok">
+          <span>✓</span>
+          <span><b><%= dihapus %></b> dihapus, dan agent di server itu sudah dicabut sepenuhnya.</span>
+        </div>
+      <% } %>
+    <% } %>
+
     <% if (outdatedCount > 0) { %>
       <div class="banner-update">
         <span>⬆</span>
@@ -127,7 +147,7 @@
                     <a class="btn btn-sm btn-ghost" href="/client/<%= c.id %>">Detail</a>
                     <a class="btn btn-sm btn-ghost" href="/clients/<%= c.id %>/edit">Edit</a>
                     <form method="post" action="/clients/<%= c.id %>/delete"
-                          onsubmit="return confirm('Hapus client &quot;<%= c.name %>&quot;? Semua data metrik dan riwayatnya ikut terhapus permanen.');">
+                          onsubmit="return confirm('Hapus client &quot;<%= c.name %>&quot;?\n\nAgent di server itu akan dicabut sepenuhnya: service dimatikan, dihapus dari systemd, dan folder ~/.oops-agent dihapus.\n\nSemua data metrik, riwayat, dan alert-nya ikut terhapus permanen.');">
                       <button type="submit" class="btn-sm btn-danger">Remove</button>
                     </form>
                   </div>

@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.1.0'
+AGENT_VERSION = '1.2.0'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -43,6 +43,13 @@ AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 RECONNECT_BASE_S = 2
 RECONNECT_MAX_S = 60
 
+# Berapa kali token boleh ditolak (HTTP 401) sebelum agent menyimpulkan dirinya
+# memang sudah dicabut lalu berhenti. Tidak langsung di penolakan pertama:
+# database server bisa saja sedang di-restore dari backup, dan agent yang
+# menghapus dirinya karena gangguan sesaat tidak bisa dibatalkan dari jarak
+# jauh — harus datang ke server itu lagi secara manual.
+MAX_TOKEN_REJECTIONS = int(os.environ.get('OOPS_MAX_TOKEN_REJECTIONS') or 10)
+
 if not SERVER_URL or not TOKEN:
     print('[agent] OOPS_SERVER_URL dan OOPS_TOKEN wajib diset.', file=sys.stderr)
     sys.exit(1)
@@ -51,6 +58,18 @@ if not SERVER_URL or not TOKEN:
 # ===================== WebSocket minimal (RFC 6455) =====================
 
 class WebSocketError(Exception):
+    pass
+
+
+class TokenDitolak(WebSocketError):
+    """
+    Server menjawab HTTP 401 saat handshake: token tidak dikenal.
+
+    Kelas sendiri, bukan pemeriksaan teks pesan error, supaya pemanggil bisa
+    membedakan "client sudah dihapus dari dashboard" dari kegagalan koneksi
+    biasa secara andal — pencocokan string akan diam-diam berhenti bekerja
+    kalau pesannya berubah sedikit saja.
+    """
     pass
 
 
@@ -120,6 +139,8 @@ class WebSocket:
         self._buf = rest  # sisa byte bisa jadi awal frame, jangan dibuang
         lines = head.decode('latin-1').split('\r\n')
         if '101' not in lines[0]:
+            if ' 401' in lines[0]:
+                raise TokenDitolak(lines[0].strip())
             raise WebSocketError('handshake ditolak: %s' % lines[0])
 
         # Verifikasi Sec-WebSocket-Accept. Tanpa ini, respons 101 dari
@@ -433,6 +454,108 @@ def handle_self_update(ws, req_id):
 
 # ===================== Loop utama =====================
 
+def self_uninstall(alasan):
+    """
+    Hapus agent ini dari server tempatnya berjalan.
+
+    Urutannya penting. `disable` dijalankan sebelum proses ini mati, karena
+    setelah itu tidak ada lagi yang bisa menjalankan perintah — kalau
+    dibalik, unit-nya tetap enabled dan agent hidup lagi begitu server
+    di-reboot, justru setelah "berhasil" di-uninstall.
+
+    Direktori dihapus paling akhir lewat proses terpisah: kita sedang
+    menghapus folder tempat berkas yang sedang dieksekusi berada, jadi
+    penghapusnya tidak boleh ikut mati bersama proses ini.
+    """
+    print('[agent] uninstall: %s' % alasan)
+
+    env = dict(os.environ)
+    env.setdefault('XDG_RUNTIME_DIR', '/run/user/%d' % os.getuid())
+
+    try:
+        subprocess.run(['systemctl', '--user', 'disable', SERVICE_NAME],
+                       timeout=15, env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        pass  # systemd mungkin tidak dipakai; bukan alasan berhenti
+
+    unit = os.path.join(os.environ.get('HOME', ''),
+                        '.config/systemd/user/%s.service' % SERVICE_NAME)
+    try:
+        if os.environ.get('HOME') and os.path.exists(unit):
+            os.unlink(unit)
+    except Exception as e:
+        print('[agent] gagal menghapus unit file: %s' % e, file=sys.stderr)
+
+    # `stop` dipanggil di dalam skrip terpisah supaya systemd tidak menganggap
+    # ini crash lalu me-restart kita di tengah penghapusan.
+    # Pembersih HARUS lepas dari cgroup service ini.
+    #
+    # Ditemukan lewat pengujian di Linux, bukan dugaan: subprocess biasa —
+    # bahkan dengan start_new_session — tetap berada di cgroup unit systemd,
+    # dan systemd membunuh seluruh cgroup saat unit berhenti. Jadi pembersih
+    # ikut mati sebelum sempat menghapus apa pun, lalu Restart=always
+    # menghidupkan agent kembali. Hasilnya: agent mencoba mencabut diri
+    # berulang-ulang tanpa pernah berhasil.
+    #
+    # `systemd-run` menjalankan perintah sebagai unit transient miliknya
+    # sendiri, di luar cgroup kita, sehingga selamat saat unit ini dimatikan.
+    #
+    # Yang juga sudah dicoba dan TIDAK bekerja: `disable` saja (hanya
+    # mencegah start saat boot), dan `set-property Restart=no` (systemd
+    # menolak — Restart bukan properti yang bisa diubah saat runtime).
+    perintah = '; '.join([
+        'sleep 1',
+        'systemctl --user stop %s 2>/dev/null || true' % SERVICE_NAME,
+        'systemctl --user reset-failed %s 2>/dev/null || true' % SERVICE_NAME,
+        'systemctl --user daemon-reload 2>/dev/null || true',
+        "rm -rf '%s'" % AGENT_DIR.replace("'", "'\\''"),
+    ])
+    dijadwalkan = False
+    try:
+        r = subprocess.run(
+            ['systemd-run', '--user', '--collect', '--quiet',
+             '--unit', 'oops-cleanup-%d' % int(time.time()),
+             '/bin/sh', '-c', perintah],
+            timeout=15, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        dijadwalkan = (r.returncode == 0)
+        if not dijadwalkan:
+            print('[agent] systemd-run gagal: %s'
+                  % r.stderr.decode('utf-8', 'replace').strip(), file=sys.stderr)
+    except Exception as e:
+        print('[agent] systemd-run tidak tersedia: %s' % e, file=sys.stderr)
+
+    if not dijadwalkan:
+        # Tanpa systemd-run (mis. agent dijalankan manual, bukan sebagai
+        # service), tidak ada cgroup yang membunuh kita — proses terpisah
+        # biasa sudah cukup.
+        try:
+            subprocess.Popen(['/bin/sh', '-c', perintah], env=env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except Exception as e:
+            print('[agent] gagal menjadwalkan pembersihan: %s' % e, file=sys.stderr)
+
+    print('[agent] service dicabut, direktori akan dihapus. Selamat tinggal.')
+    # Exit 0: penghentian yang disengaja. Kode error akan membuat systemd
+    # menganggapnya crash lalu me-restart kita.
+    os._exit(0)
+
+
+def handle_uninstall_command(ws, req_id):
+    """Uninstall atas perintah dashboard — balas dulu, baru bersihkan."""
+    try:
+        ws.send_text(json.dumps({
+            'type': 'uninstall_result', 'id': req_id, 'ok': True,
+            'message': 'Agent dicabut dari server ini.',
+        }))
+    except Exception:
+        pass
+    time.sleep(0.5)  # beri waktu balasan terkirim sebelum socket ikut mati
+    self_uninstall('diperintahkan dari dashboard')
+
+
 def build_ws_url():
     u = urlparse(SERVER_URL)
     scheme = 'wss' if u.scheme == 'https' else 'ws'
@@ -520,6 +643,8 @@ def session():
                 handle_command(ws, msg['id'], msg['command'])
             elif msg.get('type') == 'update_agent' and msg.get('id'):
                 handle_self_update(ws, msg['id'])
+            elif msg.get('type') == 'uninstall_agent' and msg.get('id'):
+                handle_uninstall_command(ws, msg['id'])
     finally:
         stop.set()
         ws.close()
@@ -527,10 +652,18 @@ def session():
 
 def main():
     delay = RECONNECT_BASE_S
+    ditolak = 0
     while True:
         try:
             session()
             delay = RECONNECT_BASE_S  # sesi sempat terbentuk: mulai lagi dari cepat
+            ditolak = 0               # koneksi berhasil: penolakan lama tidak relevan
+        except TokenDitolak:
+            ditolak += 1
+            print('[agent] token ditolak server (401), percobaan ke-%d' % ditolak,
+                  file=sys.stderr)
+            if ditolak >= MAX_TOKEN_REJECTIONS:
+                self_uninstall('token sudah dicabut dari dashboard')
         except Exception as e:
             print('[agent] koneksi bermasalah (%s), reconnect dalam %ds' % (e, delay),
                   file=sys.stderr)

@@ -125,13 +125,39 @@ router.post('/clients/:id/regenerate-token', (req, res) => {
   res.redirect(`/clients/${id}/edit?regenerated=1`);
 });
 
-router.post('/clients/:id/delete', (req, res) => {
+/**
+ * Hapus client: cabut agent di server target lebih dulu, lalu hapus datanya.
+ *
+ * Kalau agent tidak dicabut, ia akan terus mencoba reconnect ke server
+ * monitoring selamanya dengan token yang sudah tidak berlaku, dan folder
+ * ~/.oops-agent beserta service systemd-nya tertinggal di server target.
+ *
+ * Kegagalan uninstall TIDAK membatalkan penghapusan. Client yang tidak bisa
+ * dihapus dari dashboard hanya karena agent-nya sedang offline adalah
+ * kemunduran, bukan pengaman — pemilik projek diberi tahu lewat pesan di
+ * dashboard supaya tahu ada sisa yang perlu dibersihkan manual.
+ */
+router.post('/clients/:id/delete', async (req, res) => {
   const id = Number(req.params.id);
   const client = clientStore.getClientById(id);
   if (!client) return res.status(404).render('not-found', { id: req.params.id });
 
+  let hasil = { ok: false, offline: true, message: null };
+  try {
+    hasil = await wsServer.requestUninstall(id);
+  } catch (err) {
+    // requestUninstall dirancang tidak melempar, tapi kalau toh terjadi,
+    // penghapusan tetap harus jalan.
+    hasil = { ok: false, message: err.message };
+  }
+
   clientStore.deleteClient(id);
-  res.redirect('/');
+
+  if (hasil.ok) {
+    return res.redirect('/?dihapus=' + encodeURIComponent(client.name));
+  }
+  // Agent tertinggal di server target — beri perintah pembersihannya.
+  res.redirect('/?dihapus=' + encodeURIComponent(client.name) + '&sisa=1');
 });
 
 /** Minta agent jalankan docker ps -a atau ss -tulnp, tunggu balasan (AJAX). */

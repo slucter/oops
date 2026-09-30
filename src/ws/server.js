@@ -11,6 +11,7 @@ const COMMAND_TIMEOUT_MS = 10000;
 // Update melibatkan unduh berkas + npm install, jauh lebih lama daripada
 // command biasa. Timeout pendek akan melaporkan gagal padahal update masih
 // berjalan dan akan berhasil.
+const UNINSTALL_TIMEOUT_MS = Number(process.env.AGENT_UNINSTALL_TIMEOUT_MS || 20000);
 const UPDATE_TIMEOUT_MS = Number(process.env.AGENT_UPDATE_TIMEOUT_MS || 240000);
 const PING_INTERVAL_MS = Number(process.env.CLIENT_PING_INTERVAL_MS || 15000);
 
@@ -20,6 +21,8 @@ const activeConnections = new Map();
 const pendingCommands = new Map();
 // requestId -> { resolve, reject, timer }, permintaan update yang menunggu balasan.
 const pendingUpdates = new Map();
+// requestId -> { resolve, timer }, permintaan uninstall yang menunggu balasan.
+const pendingUninstalls = new Map();
 // clientId -> latency RTT terakhir (ms) dari ping/pong WebSocket. Hanya di
 // memori: nilainya ikut disimpan ke DB saat payload metrik berikutnya masuk,
 // supaya tidak bikin baris/tabel sendiri untuk angka yang berubah terus.
@@ -104,6 +107,16 @@ function attach(httpServer) {
           version: null,
         });
       }
+
+      // Agent yang mencabut dirinya juga memutus koneksi. Sama seperti di
+      // atas, itu tanda berhasil — bukan kegagalan yang perlu ditunggu
+      // sampai timeout.
+      for (const [id, pending] of pendingUninstalls) {
+        if (!id.startsWith(`${client.id}-uninstall-`)) continue;
+        clearTimeout(pending.timer);
+        pendingUninstalls.delete(id);
+        pending.resolve({ ok: true, message: 'Agent memutus koneksi — tanda pencabutan dijalankan.' });
+      }
       console.log(`[ws] client "${client.name}" (id=${client.id}) terputus`);
     });
 
@@ -164,6 +177,16 @@ function handleMessage(clientId, raw) {
       clearTimeout(pending.timer);
       pendingCommands.delete(result.data.id);
       pending.resolve(result.data);
+    }
+    return;
+  }
+
+  if (msg.type === 'uninstall_result') {
+    const pending = pendingUninstalls.get(msg.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingUninstalls.delete(msg.id);
+      pending.resolve({ ok: msg.ok !== false, message: typeof msg.message === 'string' ? msg.message.slice(0, 500) : null });
     }
     return;
   }
@@ -239,9 +262,44 @@ function requestCommand(clientId, command) {
   });
 }
 
+/**
+ * Minta agent mencabut dirinya dari server tempatnya berjalan.
+ *
+ * **Tidak pernah melempar.** Selalu mengembalikan { ok, message } supaya
+ * pemanggil bisa tetap menghapus client walau uninstall gagal — client yang
+ * tidak bisa dihapus dari dashboard hanya karena agent-nya offline adalah
+ * kemunduran, bukan pengaman.
+ *
+ * Agent memutus koneksi begitu selesai mencabut diri, jadi putusnya koneksi
+ * di sini dibaca sebagai sukses, bukan kegagalan.
+ */
+function requestUninstall(clientId) {
+  const ws = activeConnections.get(clientId);
+  if (!ws || ws.readyState !== ws.OPEN) {
+    return Promise.resolve({ ok: false, offline: true, message: 'Client sedang tidak terkoneksi.' });
+  }
+
+  const id = `${clientId}-uninstall-${Date.now()}`;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingUninstalls.delete(id);
+      resolve({ ok: false, message: 'Timeout menunggu balasan dari agent.' });
+    }, UNINSTALL_TIMEOUT_MS);
+
+    pendingUninstalls.set(id, { resolve, timer });
+    try {
+      ws.send(JSON.stringify({ type: 'uninstall_agent', id }));
+    } catch (err) {
+      clearTimeout(timer);
+      pendingUninstalls.delete(id);
+      resolve({ ok: false, message: `Gagal mengirim perintah: ${err.message}` });
+    }
+  });
+}
+
 function isClientConnected(clientId) {
   const ws = activeConnections.get(clientId);
   return !!ws && ws.readyState === ws.OPEN;
 }
 
-module.exports = { attach, requestCommand, requestAgentUpdate, isClientConnected };
+module.exports = { attach, requestCommand, requestAgentUpdate, requestUninstall, isClientConnected };

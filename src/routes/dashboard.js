@@ -22,6 +22,8 @@ router.get('/', (req, res) => {
     grouped,
     username: req.session.username,
     latestAgentVersion: LATEST_AGENT_VERSION,
+    dihapus: typeof req.query.dihapus === 'string' ? req.query.dihapus.slice(0, 80) : null,
+    adaSisa: req.query.sisa === '1',
   });
 });
 

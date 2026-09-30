@@ -702,6 +702,44 @@
     }
     .banner-alert .count { font-weight: 700; color: var(--danger); }
 
+    /* ================= HASIL HAPUS CLIENT ================= */
+    .banner-ok, .banner-sisa {
+      display: flex; align-items: flex-start; gap: 0.7rem;
+      padding: 0.7rem 0.95rem;
+      border-radius: 4px;
+      margin-bottom: 1.1rem;
+      font-size: 0.8rem;
+      line-height: 1.55;
+    }
+    .banner-ok {
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      background: rgba(61,216,138,.06);
+      color: var(--text-dim);
+    }
+    .banner-ok b { color: var(--accent); font-weight: 600; }
+    .banner-sisa {
+      border: 1px solid rgba(219,179,82,.3);
+      border-left: 3px solid var(--warn);
+      background: rgba(219,179,82,.07);
+      color: #e3d3a8;
+    }
+    .banner-sisa b { color: var(--warn); font-weight: 700; }
+    /* Perintah pembersihan panjang: biarkan membungkus, jangan memaksa
+       scroll horizontal pada seluruh halaman. */
+    .banner-sisa code {
+      display: block;
+      margin-top: 0.4rem;
+      padding: 0.35rem 0.5rem;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(219,179,82,.2);
+      border-radius: 3px;
+      color: #f0e4c4;
+      font-size: 0.72rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
     /* ================= VERSI AGENT ================= */
     /* Biru-info, bukan merah/kuning: agent tertinggal versi adalah pekerjaan
        rumah, bukan insiden. Warna alert disisakan untuk hal yang benar-benar
