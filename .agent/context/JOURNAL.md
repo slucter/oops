@@ -10,6 +10,98 @@ Aturan: jangan pernah menulis nilai rahasia di sini. Sebut namanya saja
 
 <!-- Entri baru ditambahkan tepat di bawah baris ini -->
 
+## 2026-09-30 · Sistem alert + push notification browser, live di produksi
+
+**Agent:** Claude Code (Opus 5)
+**Branch:** `development` · **Commit:** `3a42c43`
+
+### Selesai
+- **Sistem alert** (`59a44c9`): `src/services/alertEngine.js` mengevaluasi tiap
+  metrik masuk terhadap ambang di tabel `settings` — disk, RAM, CPU load, latency,
+  offline, dan prediksi disk penuh. Notifikasi ke Telegram, badge di baris tabel
+  dashboard, halaman `/settings` untuk mengatur ambang dan token bot.
+  - **Debouncing**: satu baris `alerts` per insiden. Notifikasi dikirim saat mulai
+    dan saat pulih saja — bukan tiap siklus polling 30 detik (kalau tidak, satu
+    disk penuh menghasilkan ~120 pesan/jam).
+  - **Pengecualian eskalasi**: debouncing tadi sempat menelan kenaikan keparahan
+    (disk 92% warning -> 96% critical tidak memberi kabar apa-apa). Diperbaiki
+    dengan `SEVERITY_RANK` — notifikasi tetap dikirim kalau severity naik, ditandai
+    "MEMBURUK". Ditemukan saat pengujian sendiri, bukan dari laporan.
+  - **Load dinormalisasi per core** (`load / cpu_count`) supaya ambang yang sama
+    adil untuk mesin 2-core maupun 32-core. Kolom `cpu_count` ditambahkan ke
+    `client_metrics`.
+- **Push notification browser** (`3a42c43`): Web Push + Service Worker, notifikasi
+  tetap sampai walau tab dashboard tertutup. Kunci VAPID di-generate sekali lalu
+  disimpan di `settings` — kalau di-generate ulang tiap restart, semua langganan
+  yang sudah terdaftar jadi invalid. Kunci privat disaring dari view lewat
+  `NEVER_EXPOSE` di `settingsStore`.
+  - Pembersihan langganan mati: HTTP 404/410/400 dihapus langsung (permanen);
+    kegagalan tanpa `statusCode` (enkripsi gagal lokal) dibuang setelah 5 kali
+    beruntun, supaya tabel tidak menumpuk endpoint sampah.
+- **Deploy ke produksi** (`mon.kawandev.xyz`, KST Lab): pull + `npm install
+  --omit=dev` + `systemctl --user restart oops-server`.
+  **Diverifikasi langsung, bukan diasumsikan:** service `active`; keempat client
+  (KST Balancer, KST Lab, KST Dev, Services Prod) reconnect otomatis dalam 2 detik;
+  tabel `push_subscriptions` ter-migrasi dengan 9 kolom tanpa menyentuh data client
+  lama; `/sw.js` HTTP 200 dengan header `Service-Worker-Allowed: /`;
+  `push-client.js`, `icon-192.png`, `badge-72.png` semua HTTP 200;
+  `/push/*` dan `/settings` menolak akses tanpa login (302 ke `/login`).
+
+### Belum selesai
+- **Telegram belum pernah benar-benar mengirim pesan.** Pemilik projek belum
+  membuat botnya ("Belum, saya buat dulu nanti"). Alur pengiriman sudah diuji
+  dengan HTTP mock, tapi belum ke API Telegram sungguhan. Langkah: buat bot lewat
+  @BotFather, tambahkan ke grup, isi token + chat ID di `/settings`, klik
+  "Kirim pesan uji".
+- **Push belum pernah diterima browser sungguhan.** Nol langganan terdaftar dan
+  kunci VAPID belum di-generate (normal — dibuat saat `/settings` pertama dibuka).
+  Yang sudah diuji lokal: generate & persistensi kunci, subscribe/duplikat/
+  unsubscribe, pembuangan langganan rusak, dan integrasi alert->push menghasilkan
+  payload lengkap. Yang belum: satu pun browser nyata menerimanya.
+- **Tampilan belum pernah dilihat mata.** Tidak ada browser pane di session ini,
+  jadi penurunan kontras hijau (permintaan "agak sakit mata") hanya diverifikasi
+  sebagai nilai CSS, bukan secara visual.
+
+### Keputusan
+- **VAPID di-generate sendiri dan disimpan di DB**, bukan lewat env var. Alasannya
+  satu perintah instalasi lebih sedikit untuk pemilik projek, dan kunci ini tidak
+  perlu dibagikan ke mana pun. Konsekuensi yang perlu diingat: **kalau
+  `data/oops.sqlite` dihapus/diganti, semua langganan push harus didaftarkan ulang
+  di tiap browser** — kuncinya ikut hilang.
+- **Langganan push boleh tidak punya pemilik** (`user_id` NULL) kalau session
+  merujuk user yang sudah tidak ada. Notifikasi tetap jalan lebih berharga daripada
+  gagal total karena foreign key.
+- Push dikirim paralel dengan Telegram lewat `Promise.all` — kegagalan salah satu
+  tidak boleh menahan atau menggagalkan yang lain.
+
+### Jalan buntu
+- **`express.static` menangani `/sw.js` lebih dulu**, sehingga header
+  `Service-Worker-Allowed` tidak pernah terkirim dan scope service worker terbatas.
+  Urutan middleware di `src/server.js:55` penting — route `/sw.js` **harus** sebelum
+  `express.static`. Jangan dipindah.
+- **Error handler mengembalikan HTML untuk `/push/*`** yang dipanggil dari
+  JavaScript, jadi `res.json()` di sisi klien gagal parse dan pesan errornya
+  menyesatkan. Sekarang menjawab JSON untuk path `/push/*`.
+- `sqlite3` CLI tidak terpasang di KST Lab — untuk inspeksi DB di sana pakai
+  `node -e` dengan `better-sqlite3` yang memang sudah ada di `~/oops`.
+
+### Langkah berikutnya
+1. Buka `https://mon.kawandev.xyz/settings`, klik "Aktifkan notifikasi" di tiap
+   browser yang ingin menerima, lalu "Kirim tes push" untuk memastikan sampai.
+2. Buat bot Telegram lewat @BotFather, tambahkan ke grup, isi token + chat ID di
+   `/settings`, klik "Kirim pesan uji".
+3. Konfirmasi tampilan hijau sudah nyaman dilihat — belum pernah diverifikasi
+   secara visual oleh agent.
+4. Kalau semua beres, merge `development` -> `master`.
+
+### Catatan
+- Di iPhone/iPad, situs harus ditambahkan ke Home Screen dulu sebelum push bisa
+  aktif. Ini ketentuan Apple, bukan batasan implementasi. Sudah ditulis di halaman
+  Setting.
+- Kredensial yang dipakai session ini (login dashboard, sudo Load Balancer KST)
+  hanya dipakai lewat SSH langsung dan **tidak ditulis ke repo mana pun**.
+  `deploy/kst-lab.md` mencatat keberadaannya, bukan nilainya.
+
 ## 2026-09-30 · MVP dashboard monitoring server (sxops) — dari nol sampai diterima
 
 **Agent:** Claude Code (Sonnet 5)
