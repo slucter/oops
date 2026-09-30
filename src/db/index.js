@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data', 'sxops.sqlite');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data', 'oops.sqlite');
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 

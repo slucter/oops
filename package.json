@@ -1,7 +1,7 @@
 {
-  "name": "sxops",
+  "name": "oops",
   "version": "0.1.0",
-  "description": "Dashboard monitoring status server kantor dan client",
+  "description": "Oops - Online Operations & Performance Sentinel",
   "private": true,
   "type": "commonjs",
   "main": "src/server.js",

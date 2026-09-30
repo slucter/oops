@@ -1,4 +1,4 @@
-# sxops — Dashboard Monitoring via Agent WebSocket
+# Oops — Online Operations & Performance Sentinel
 
 Dashboard web untuk memantau status UP/DOWN, RAM, disk, CPU load, Docker,
 dan port listen dari banyak server — tanpa SSH. Server yang dipantau
@@ -97,5 +97,5 @@ tapi port dan statusnya tetap ada.
   di-download oleh `install.sh`, bukan bagian dari server ini)
 - `agent/resourceParser.js` — parser `free`/`df`/`loadavg` (dipakai agent,
   jalan lokal di client — bukan lewat SSH)
-- `data/sxops.sqlite` — database (client, metrik, hasil command) — tidak
+- `data/oops.sqlite` — database (client, metrik, hasil command) — tidak
   di-commit

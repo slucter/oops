@@ -51,7 +51,7 @@ app.use((err, req, res, next) => {
 });
 
 const httpServer = app.listen(PORT, () => {
-  console.log(`[server] sxops dashboard jalan di http://localhost:${PORT}`);
+  console.log(`[server] Oops dashboard jalan di http://localhost:${PORT}`);
 });
 
 wsServer.attach(httpServer);

@@ -30,14 +30,14 @@ function buildInstallScript({ base, token, interval }) {
   return `#!/usr/bin/env bash
 set -euo pipefail
 
-SXOPS_DIR="$HOME/.sxops-agent"
-SERVICE_NAME="sxops-agent"
+OOPS_DIR="$HOME/.oops-agent"
+SERVICE_NAME="oops-agent"
 
-echo "[sxops-install] menyiapkan direktori agent di $SXOPS_DIR"
-mkdir -p "$SXOPS_DIR"
+echo "[oops-install] menyiapkan direktori agent di $OOPS_DIR"
+mkdir -p "$OOPS_DIR"
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "[sxops-install] node tidak ditemukan, mencoba install..."
+  echo "[oops-install] node tidak ditemukan, mencoba install..."
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update -y && sudo apt-get install -y nodejs npm
   elif command -v yum >/dev/null 2>&1; then
@@ -45,34 +45,34 @@ if ! command -v node >/dev/null 2>&1; then
   elif command -v apk >/dev/null 2>&1; then
     sudo apk add --no-cache nodejs npm
   else
-    echo "[sxops-install] tidak bisa deteksi package manager. Install node manual lalu jalankan ulang command ini." >&2
+    echo "[oops-install] tidak bisa deteksi package manager. Install node manual lalu jalankan ulang command ini." >&2
     exit 1
   fi
 fi
 
-echo "[sxops-install] mendownload agent..."
-curl -fsSL "${base}/agent-files/agent.js" -o "$SXOPS_DIR/agent.js"
-curl -fsSL "${base}/agent-files/resourceParser.js" -o "$SXOPS_DIR/resourceParser.js"
-curl -fsSL "${base}/agent-files/package.json" -o "$SXOPS_DIR/package.json"
+echo "[oops-install] mendownload agent..."
+curl -fsSL "${base}/agent-files/agent.js" -o "$OOPS_DIR/agent.js"
+curl -fsSL "${base}/agent-files/resourceParser.js" -o "$OOPS_DIR/resourceParser.js"
+curl -fsSL "${base}/agent-files/package.json" -o "$OOPS_DIR/package.json"
 
-echo "[sxops-install] install dependencies..."
-cd "$SXOPS_DIR"
+echo "[oops-install] install dependencies..."
+cd "$OOPS_DIR"
 npm install --production --silent
 
-echo "[sxops-install] mendaftarkan systemd user service..."
+echo "[oops-install] mendaftarkan systemd user service..."
 mkdir -p "$HOME/.config/systemd/user"
 cat > "$HOME/.config/systemd/user/$SERVICE_NAME.service" <<UNIT
 [Unit]
-Description=sxops monitoring agent
+Description=oops monitoring agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=SXOPS_SERVER_URL=${base}
-Environment=SXOPS_TOKEN=${token}
-Environment=SXOPS_INTERVAL_MS=${interval}
-ExecStart=$(command -v node) $SXOPS_DIR/agent.js
+Environment=OOPS_SERVER_URL=${base}
+Environment=OOPS_TOKEN=${token}
+Environment=OOPS_INTERVAL_MS=${interval}
+ExecStart=$(command -v node) $OOPS_DIR/agent.js
 Restart=always
 RestartSec=5
 StartLimitIntervalSec=0
@@ -81,7 +81,7 @@ StartLimitIntervalSec=0
 WantedBy=default.target
 UNIT
 
-echo "[sxops-install] mengaktifkan lingering supaya agent tetap jalan setelah reboot tanpa perlu login..."
+echo "[oops-install] mengaktifkan lingering supaya agent tetap jalan setelah reboot tanpa perlu login..."
 LINGER_OK=0
 if loginctl enable-linger "$(whoami)" 2>/dev/null; then
   LINGER_OK=1
@@ -90,11 +90,11 @@ elif sudo -n loginctl enable-linger "$(whoami)" 2>/dev/null; then
 fi
 
 if [ "$LINGER_OK" -ne 1 ]; then
-  echo "[sxops-install] GAGAL mengaktifkan lingering (loginctl enable-linger)." >&2
-  echo "[sxops-install] Tanpa ini, agent TIDAK akan otomatis jalan lagi setelah server di-reboot" >&2
-  echo "[sxops-install] sampai ada yang login manual sebagai user ini. Jalankan manual:" >&2
-  echo "[sxops-install]   sudo loginctl enable-linger $(whoami)" >&2
-  echo "[sxops-install] lalu ulangi instalasi ini." >&2
+  echo "[oops-install] GAGAL mengaktifkan lingering (loginctl enable-linger)." >&2
+  echo "[oops-install] Tanpa ini, agent TIDAK akan otomatis jalan lagi setelah server di-reboot" >&2
+  echo "[oops-install] sampai ada yang login manual sebagai user ini. Jalankan manual:" >&2
+  echo "[oops-install]   sudo loginctl enable-linger $(whoami)" >&2
+  echo "[oops-install] lalu ulangi instalasi ini." >&2
   exit 1
 fi
 
@@ -108,9 +108,9 @@ systemctl --user restart "$SERVICE_NAME"
 
 sleep 2
 if systemctl --user is-active --quiet "$SERVICE_NAME"; then
-  echo "[sxops-install] selesai. Agent aktif dan akan otomatis jalan lagi setelah restart proses maupun reboot server."
+  echo "[oops-install] selesai. Agent aktif dan akan otomatis jalan lagi setelah restart proses maupun reboot server."
 else
-  echo "[sxops-install] service terdaftar tapi belum aktif. Cek detail: systemctl --user status $SERVICE_NAME" >&2
+  echo "[oops-install] service terdaftar tapi belum aktif. Cek detail: systemctl --user status $SERVICE_NAME" >&2
   exit 1
 fi
 `;

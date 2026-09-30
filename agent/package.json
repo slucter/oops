@@ -1,7 +1,7 @@
 {
-  "name": "sxops-agent",
+  "name": "oops-agent",
   "version": "1.0.0",
-  "description": "Agent client sxops - konek ke server monitoring via WebSocket",
+  "description": "Agent client Oops - konek ke server monitoring via WebSocket",
   "private": true,
   "main": "agent.js",
   "dependencies": {

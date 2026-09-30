@@ -1,4 +1,4 @@
-const DELIM = '---sxops-delim---';
+const DELIM = '---oops-delim---';
 
 const RESOURCE_COMMAND = [
   'free -m',

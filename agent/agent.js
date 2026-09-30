@@ -2,26 +2,26 @@
 'use strict';
 
 /**
- * Agent sxops — dijalankan di server client. Connect ke server monitoring
+ * Agent Oops — dijalankan di server client. Connect ke server monitoring
  * lewat WebSocket, kirim payload metrik berkala, dan merespons permintaan
  * command (docker ps -a / ss -tulnp) dari server.
  *
  * Konfigurasi lewat environment variable (diset oleh install.sh ke unit
- * systemd): SXOPS_SERVER_URL, SXOPS_TOKEN, SXOPS_INTERVAL_MS (opsional).
+ * systemd): OOPS_SERVER_URL, OOPS_TOKEN, OOPS_INTERVAL_MS (opsional).
  */
 
 const WebSocket = require('ws');
 const { execSync } = require('child_process');
 const { RESOURCE_COMMAND, parseResourceOutput } = require('./resourceParser');
 
-const SERVER_URL = process.env.SXOPS_SERVER_URL;
-const TOKEN = process.env.SXOPS_TOKEN;
-const INTERVAL_MS = Number(process.env.SXOPS_INTERVAL_MS || 30000);
+const SERVER_URL = process.env.OOPS_SERVER_URL;
+const TOKEN = process.env.OOPS_TOKEN;
+const INTERVAL_MS = Number(process.env.OOPS_INTERVAL_MS || 30000);
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 60000;
 
 if (!SERVER_URL || !TOKEN) {
-  console.error('[agent] SXOPS_SERVER_URL dan SXOPS_TOKEN wajib diset.');
+  console.error('[agent] OOPS_SERVER_URL dan OOPS_TOKEN wajib diset.');
   process.exit(1);
 }
 
