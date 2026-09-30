@@ -229,7 +229,10 @@
     .dot-live { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 6px -1px var(--accent); }
 
     /* ================= LAYOUT ================= */
-    main { padding: 1.7rem 1.4rem 4rem; max-width: 1180px; margin: 0 auto; }
+    /* Lebar dibatasi supaya baris teks panjang tidak melelahkan dibaca, tapi
+       cukup longgar untuk tabel dashboard yang punya 10 kolom — di 1180px
+       kolom hostname dan last-seen terbungkus jadi tiga baris. */
+    main { padding: 1.7rem 1.8rem 4rem; max-width: 1560px; margin: 0 auto; }
 
     h1 {
       font-size: 1.18rem;
@@ -311,7 +314,16 @@
     tbody tr:hover { background: rgba(61,216,138,.04); }
     tbody tr:last-child td { border-bottom: 0; }
     td.cell-name { font-weight: 600; color: var(--text); }
-    td.num { font-variant-numeric: tabular-nums; }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* Kolom yang isinya satu satuan utuh — hostname, IP, waktu, tombol aksi —
+       tidak boleh dipecah jadi beberapa baris. "2026-09-30 16:53:01" yang
+       terbelah tiga baris membuat tiap baris tabel jadi setinggi tiga baris
+       dan justru memakan lebar, bukan menghemat. Nama client sengaja TIDAK
+       ikut aturan ini: nama panjang memang lebih baik membungkus daripada
+       mendorong kolom lain keluar layar. */
+    td.cell-host, td.cell-time, td.cell-ip, td.cell-actions { white-space: nowrap; }
+    td.cell-host { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
 
     .group-label {
       color: var(--accent);

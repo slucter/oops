@@ -90,8 +90,8 @@
                     <span class="alert-dot alert-ok">OK</span>
                   <% } %>
                 </td>
-                <td class="meta"><%= c.hostname || '—' %></td>
-                <td>
+                <td class="meta cell-host" title="<%= c.hostname || '' %>"><%= c.hostname || '—' %></td>
+                <td class="cell-ip">
                   <% if (c.privateIp || c.publicIp) { %>
                     <span class="ip-stack">
                       <span class="ip-priv"><%= c.privateIp || '—' %></span>
@@ -117,8 +117,8 @@
                     <span class="agent-ver agent-ok" title="Sudah versi terbaru">v<%= c.agentVersion %></span>
                   <% } %>
                 </td>
-                <td class="meta num"><%= c.lastSeenAt || 'never' %></td>
-                <td>
+                <td class="meta num cell-time"><%= c.lastSeenAt || 'never' %></td>
+                <td class="cell-actions">
                   <div class="row-actions">
                     <% if (c.needsUpdate && c.status === 'up') { %>
                       <button type="button" class="btn-sm btn-primary update-agent-btn"
