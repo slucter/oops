@@ -125,6 +125,9 @@
         fetch('/peta/' + jobId, { headers: { 'Accept': 'application/json' } })
           .then(function (r) {
             if (r.status === 404) throw new Error('habis');
+            // Sesi berakhir: dibedakan dari gangguan jaringan supaya
+            // pesannya benar — pemindaiannya tetap berjalan.
+            if (r.status === 401) throw new Error('sesi');
             return r.json();
           })
           .then(function (data) {
@@ -150,6 +153,15 @@
             gambarHasil(data.hasil);
           })
           .catch(function (err) {
+            if (err.message === 'sesi') {
+              clearInterval(timer);
+              btn.disabled = false;
+              btn.textContent = '▤ Peta Disk';
+              isi.innerHTML = '<div class="error" style="margin:0;">Sesi login berakhir. '
+                + 'Pemindaiannya tetap berjalan di server target. '
+                + '<a href="/login">Login lagi</a> lalu jalankan ulang.</div>';
+              return;
+            }
             gagalBerturut++;
             if (err.message === 'habis' || gagalBerturut >= 10) {
               clearInterval(timer);

@@ -93,6 +93,10 @@
         fetch('/optimize/' + jobId, { headers: { 'Accept': 'application/json' } })
           .then(function (r) {
             if (r.status === 404) throw new Error('habis');
+            // Sesi berakhir di tengah pemantauan. Dibedakan dari gangguan
+            // jaringan supaya pesannya benar dan tidak menuduh optimasinya
+            // gagal — ia tetap berjalan di server target.
+            if (r.status === 401) throw new Error('sesi');
             return r.json();
           })
           .then(function (data) {
@@ -104,6 +108,17 @@
             }
           })
           .catch(function (err) {
+            // Sesi berakhir: berhenti seketika, tidak ada gunanya mencoba
+            // lagi 10 kali dengan sesi yang sama-sama sudah tidak berlaku.
+            if (err.message === 'sesi') {
+              clearInterval(timer);
+              optCatatan.innerHTML = 'Sesi login berakhir, jadi kemajuannya tidak bisa dipantau lagi. '
+                + '<b>Optimasinya sendiri tetap berjalan</b> di server target. '
+                + '<a href="/login">Login lagi</a> lalu muat ulang halaman ini.';
+              optCatatan.hidden = false;
+              selesaiCb(err);
+              return;
+            }
             gagalBerturut++;
             if (err.message === 'habis' || gagalBerturut >= 10) {
               clearInterval(timer);

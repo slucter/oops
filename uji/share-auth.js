@@ -81,6 +81,29 @@ function post(pathname) {
   r = await get(`/share/${token}/client/${c.id}/live`);
   cek('GET live share -> 200 tanpa login', r.status === 200);
 
+  console.log('\n=== Permintaan JSON tanpa sesi dijawab JSON, bukan redirect ===');
+  // Regresi: requireAuth me-redirect semua permintaan ke /login. `fetch`
+  // mengikuti redirect diam-diam, jadi kode di browser menerima HTML halaman
+  // login dan gagal mem-parse-nya sebagai JSON — dashboard melaporkan
+  // "error" padahal optimasi/pemetaan berjalan lancar di server target.
+  const ambilJson = (p) => new Promise((resolve) => {
+    http.get({ host: '127.0.0.1', port: 31990, path: p, headers: { Accept: 'application/json' } }, (res) => {
+      let b = '';
+      res.on('data', (c) => (b += c));
+      res.on('end', () => {
+        let j = null;
+        try { j = JSON.parse(b); } catch {}
+        resolve({ status: res.statusCode, json: j, location: res.headers.location || '' });
+      });
+    }).on('error', (e) => resolve({ status: 0, json: null, location: '' }));
+  });
+
+  for (const p of ['/optimize/abc', '/peta/abc', '/client/1/live']) {
+    const jr = await ambilJson(p);
+    cek(`${p.padEnd(18)} -> 401 JSON, bukan redirect`,
+      jr.status === 401 && jr.json && jr.json.sesiBerakhir === true);
+  }
+
   console.log('\n=== Share tidak membuka jalan ke halaman berlogin ===');
   r = await get(`/share/${token}`);
   cek('tidak ada tautan ke "/" (dashboard asli)', !/href="\/"/.test(r.body));
