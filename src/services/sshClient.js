@@ -1,14 +1,31 @@
 const fs = require('fs');
 const { Client } = require('ssh2');
 const { getServerById } = require('./serverStore');
+const { keysToTryForHost } = require('./sshKeyDiscovery');
 
 const CONNECT_TIMEOUT_MS = Number(process.env.SSH_CONNECT_TIMEOUT_MS || 8000);
 const COMMAND_TIMEOUT_MS = Number(process.env.SSH_COMMAND_TIMEOUT_MS || 10000);
 
-// Key dibaca langsung dari disk tiap koneksi (bukan di-cache in-memory),
-// supaya penggantian key lewat form edit langsung berlaku tanpa restart.
+// Key mana yang terakhir berhasil untuk sebuah host, supaya polling
+// berikutnya tidak perlu coba-coba ulang semua key dari awal.
+// Key: `${host}:${port}:${user}`. Direset saat proses app restart.
+const workingKeyCache = new Map();
+
 function readKey(keyPath) {
   return fs.readFileSync(keyPath);
+}
+
+function cacheKeyFor(server, keyPath) {
+  workingKeyCache.set(`${server.host}:${server.port}:${server.user}`, keyPath);
+}
+
+function orderedKeysFor(server) {
+  const cached = workingKeyCache.get(`${server.host}:${server.port}:${server.user}`);
+  const all = keysToTryForHost(server.host);
+  if (cached && all.includes(cached)) {
+    return [cached, ...all.filter((k) => k !== cached)];
+  }
+  return all;
 }
 
 /**
@@ -33,7 +50,7 @@ async function connect(server) {
         });
       });
 
-      const targetConn = await connectOverStream(server, stream);
+      const targetConn = await connectWithKeyDiscovery(server, { sock: stream });
       return {
         conn: targetConn,
         close: () => {
@@ -47,43 +64,52 @@ async function connect(server) {
     }
   }
 
-  const conn = await connectDirect(server);
+  const conn = await connectWithKeyDiscovery(server, { host: server.host, port: server.port });
   return { conn, close: () => conn.end() };
 }
 
-function connectDirect(server) {
-  return new Promise((resolve, reject) => {
-    const conn = new Client();
-    const timer = setTimeout(() => {
-      conn.end();
-      reject(new Error('Timeout saat koneksi SSH'));
-    }, CONNECT_TIMEOUT_MS);
+/**
+ * Coba tiap key kandidat dari ~/.ssh/ satu per satu sampai ada yang
+ * berhasil autentikasi. Kegagalan koneksi TCP (host mati/timeout) dilempar
+ * langsung tanpa mencoba key lain — itu bukan masalah key.
+ */
+async function connectWithKeyDiscovery(server, targetOpts) {
+  const keys = orderedKeysFor(server);
+  if (keys.length === 0) {
+    throw new Error(`Tidak ada private key ditemukan di ~/.ssh/ untuk mencoba koneksi ke ${server.host}.`);
+  }
 
-    conn
-      .on('ready', () => {
-        clearTimeout(timer);
-        resolve(conn);
-      })
-      .on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      })
-      .connect({
-        host: server.host,
-        port: server.port,
-        username: server.user,
-        privateKey: readKey(server.sshKey),
-        readyTimeout: CONNECT_TIMEOUT_MS,
-      });
-  });
+  let lastAuthError = null;
+  const triedNames = [];
+
+  for (const keyPath of keys) {
+    try {
+      const conn = await attemptConnect(targetOpts, server.user, readKey(keyPath));
+      cacheKeyFor(server, keyPath);
+      return conn;
+    } catch (err) {
+      if (err.level === 'client-timeout' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT' || err.code === 'EHOSTUNREACH') {
+        throw err;
+      }
+      triedNames.push(keyPath.split(/[\\/]/).pop());
+      lastAuthError = err;
+    }
+  }
+
+  throw new Error(
+    `Autentikasi gagal untuk ${server.user}@${server.host} setelah mencoba ${keys.length} key ` +
+    `(${triedNames.join(', ')}). Error terakhir: ${lastAuthError ? lastAuthError.message : 'tidak diketahui'}`
+  );
 }
 
-function connectOverStream(server, stream) {
+function attemptConnect(targetOpts, username, privateKey) {
   return new Promise((resolve, reject) => {
     const conn = new Client();
     const timer = setTimeout(() => {
       conn.end();
-      reject(new Error('Timeout saat koneksi SSH lewat jump host'));
+      const err = new Error('Timeout saat koneksi SSH');
+      err.level = 'client-timeout';
+      reject(err);
     }, CONNECT_TIMEOUT_MS);
 
     conn
@@ -96,9 +122,9 @@ function connectOverStream(server, stream) {
         reject(err);
       })
       .connect({
-        sock: stream,
-        username: server.user,
-        privateKey: readKey(server.sshKey),
+        ...targetOpts,
+        username,
+        privateKey,
         readyTimeout: CONNECT_TIMEOUT_MS,
       });
   });

@@ -10,7 +10,13 @@
       <p class="error"><%= error %></p>
     <% } %>
 
-    <form method="post" action="<%= server ? '/servers/' + server.id + '/edit' : '/servers' %>" enctype="multipart/form-data">
+    <p class="meta">
+      Private key tidak perlu diupload — app otomatis mencoba key yang ada
+      di <code>~/.ssh/</code> pada server tempat app ini berjalan, sama
+      seperti perintah <code>ssh</code> biasa.
+    </p>
+
+    <form method="post" action="<%= server ? '/servers/' + server.id + '/edit' : '/servers' %>">
       <p>
         <label>Nama</label>
         <input type="text" name="name" required value="<%= server ? server.name : '' %>" />
@@ -30,10 +36,6 @@
       <p>
         <label>User SSH</label>
         <input type="text" name="user" required value="<%= server ? server.user : '' %>" />
-      </p>
-      <p>
-        <label>Private key (<%= server ? 'kosongkan kalau tidak diganti' : 'wajib' %>)</label>
-        <input type="file" name="ssh_key" <%= server ? '' : 'required' %> />
       </p>
       <p>
         <label>Jump host (opsional — server ini diakses lewat server lain)</label>
@@ -56,7 +58,7 @@
     </form>
 
     <% if (server) { %>
-      <form method="post" action="/servers/<%= server.id %>/delete" onsubmit="return confirm('Hapus server ini beserta key-nya?');">
+      <form method="post" action="/servers/<%= server.id %>/delete" onsubmit="return confirm('Hapus server ini dari daftar?');">
         <button type="submit" style="background:#7f1d1d;">Hapus server</button>
       </form>
     <% } %>

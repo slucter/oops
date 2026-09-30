@@ -1,8 +1,8 @@
 const db = require('../db');
 
 const insertServer = db.prepare(`
-  INSERT INTO servers (name, group_name, host, port, user, ssh_key_path, via_server_id, has_docker)
-  VALUES (@name, @groupName, @host, @port, @user, @sshKeyPath, @viaServerId, @hasDocker)
+  INSERT INTO servers (name, group_name, host, port, user, via_server_id, has_docker)
+  VALUES (@name, @groupName, @host, @port, @user, @viaServerId, @hasDocker)
 `);
 
 const updateServerStmt = db.prepare(`
@@ -10,10 +10,6 @@ const updateServerStmt = db.prepare(`
   SET name = @name, group_name = @groupName, host = @host, port = @port,
       user = @user, via_server_id = @viaServerId, has_docker = @hasDocker
   WHERE id = @id
-`);
-
-const updateServerKeyPathStmt = db.prepare(`
-  UPDATE servers SET ssh_key_path = ? WHERE id = ?
 `);
 
 const deleteServerStmt = db.prepare('DELETE FROM servers WHERE id = ?');
@@ -30,7 +26,6 @@ function mapRow(row) {
     host: row.host,
     port: row.port,
     user: row.user,
-    sshKey: row.ssh_key_path,
     via: row.via_server_id,
     hasDocker: !!row.has_docker,
     createdAt: row.created_at,
@@ -76,7 +71,7 @@ function validateInput({ id, name, host, user, viaServerId }) {
   }
 }
 
-function createServer({ name, groupName, host, port, user, sshKeyPath, viaServerId, hasDocker }) {
+function createServer({ name, groupName, host, port, user, viaServerId, hasDocker }) {
   validateInput({ id: null, name, host, user, viaServerId });
   const info = insertServer.run({
     name: name.trim(),
@@ -84,7 +79,6 @@ function createServer({ name, groupName, host, port, user, sshKeyPath, viaServer
     host: host.trim(),
     port: port || 22,
     user: user.trim(),
-    sshKeyPath,
     viaServerId: viaServerId || null,
     hasDocker: hasDocker ? 1 : 0,
   });
@@ -109,10 +103,6 @@ function updateServer(id, { name, groupName, host, port, user, viaServerId, hasD
   return getServerById(id);
 }
 
-function updateServerKeyPath(id, sshKeyPath) {
-  updateServerKeyPathStmt.run(sshKeyPath, id);
-}
-
 /** Berapa banyak server lain yang menjadikan server ini sebagai jump host. */
 function countDependents(id) {
   return countChildrenStmt.get(id).n;
@@ -127,7 +117,6 @@ module.exports = {
   getServerById,
   createServer,
   updateServer,
-  updateServerKeyPath,
   deleteServer,
   countDependents,
   wouldCreateCycle,

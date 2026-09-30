@@ -1,6 +1,5 @@
 const express = require('express');
 const serverStore = require('../services/serverStore');
-const { keyUpload, assertValidKeyFile, removeKeyFile } = require('../middleware/keyUpload');
 
 const router = express.Router();
 
@@ -19,33 +18,21 @@ router.get('/servers/new', (req, res) => {
   res.render('server-form', { server: null, servers, error: null });
 });
 
-router.post('/servers', keyUpload.single('ssh_key'), (req, res) => {
+router.post('/servers', (req, res) => {
   const servers = serverStore.listServers();
 
-  if (!req.file) {
-    return res.status(400).render('server-form', {
-      server: null,
-      servers,
-      error: 'File private key wajib diupload.',
-    });
-  }
-
   try {
-    assertValidKeyFile(req.file.path);
-
     serverStore.createServer({
       name: req.body.name,
       groupName: req.body.group_name,
       host: req.body.host,
       port: Number(req.body.port) || 22,
       user: req.body.user,
-      sshKeyPath: req.file.path,
       viaServerId: parseViaServerId(req.body),
       hasDocker: parseHasDocker(req.body),
     });
     res.redirect('/');
   } catch (err) {
-    removeKeyFile(req.file.path);
     res.status(400).render('server-form', { server: null, servers, error: err.message });
   }
 });
@@ -58,21 +45,16 @@ router.get('/servers/:id/edit', (req, res) => {
   res.render('server-form', { server, servers, error: null });
 });
 
-router.post('/servers/:id/edit', keyUpload.single('ssh_key'), (req, res) => {
+router.post('/servers/:id/edit', (req, res) => {
   const id = Number(req.params.id);
   const existing = serverStore.getServerById(id);
   const servers = serverStore.listServers().filter((s) => s.id !== id);
 
   if (!existing) {
-    if (req.file) removeKeyFile(req.file.path);
     return res.status(404).render('not-found', { id: req.params.id });
   }
 
   try {
-    if (req.file) {
-      assertValidKeyFile(req.file.path);
-    }
-
     serverStore.updateServer(id, {
       name: req.body.name,
       groupName: req.body.group_name,
@@ -82,15 +64,8 @@ router.post('/servers/:id/edit', keyUpload.single('ssh_key'), (req, res) => {
       viaServerId: parseViaServerId(req.body),
       hasDocker: parseHasDocker(req.body),
     });
-
-    if (req.file) {
-      serverStore.updateServerKeyPath(id, req.file.path);
-      removeKeyFile(existing.sshKey);
-    }
-
     res.redirect('/');
   } catch (err) {
-    if (req.file) removeKeyFile(req.file.path);
     res.status(400).render('server-form', { server: existing, servers, error: err.message });
   }
 });
@@ -110,7 +85,6 @@ router.post('/servers/:id/delete', (req, res) => {
     });
   }
 
-  removeKeyFile(server.sshKey);
   serverStore.deleteServer(id);
   res.redirect('/');
 });

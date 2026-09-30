@@ -39,13 +39,6 @@ app.use(requireAuth, serverRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  if (err && err.name === 'MulterError') {
-    return res.status(400).render('server-form', {
-      server: null,
-      servers: [],
-      error: `Upload gagal: ${err.message}`,
-    });
-  }
   console.error('[server] unhandled error:', err);
   res.status(500).send('Terjadi kesalahan internal.');
 });
