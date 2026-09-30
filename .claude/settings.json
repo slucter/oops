@@ -1,0 +1,34 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .agent/scripts/muat-konteks.sh 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .agent/scripts/pemicu-skill.sh 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'KONTEKS AKAN DIRINGKAS. Sebelum melanjutkan: perbarui .agent/context/WORKING-STATE.md dengan posisi kerja saat ini — tugas yang sedang berjalan, langkah yang sudah selesai, langkah berikutnya yang konkret, dan jalan buntu yang sudah dicoba. Setelah ringkasan, baca file itu kembali dan jangan menebak dari sisa percakapan.'"
+          }
+        ]
+      }
+    ]
+  }
+}

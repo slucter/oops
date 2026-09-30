@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Menolak commit yang mengandung file rahasia atau kunci yang tampak asli.
+# Pasang dengan: bash .agent/scripts/install-hooks.sh
+
+set -u
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail=0
+
+# --- 1. Nama file yang tidak boleh masuk ---
+blocked=$(printf '%s\n' "$staged" \
+  | grep -iE '(^|/)\.env($|\.)|\.(key|pem|p12|pfx|keystore|jks)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|credentials\.(json|ya?ml)|secrets?\.(json|ya?ml)' \
+  | grep -vE '\.example$|\.sample$|\.template$')
+
+if [ -n "$blocked" ]; then
+  echo "COMMIT DITOLAK — file rahasia terdeteksi:"
+  printf '%s\n' "$blocked" | sed 's/^/  /'
+  fail=1
+fi
+
+# --- 2. Isi yang tampak seperti kunci asli ---
+# Pola token dari penyedia yang dikenal + private key + literal rahasia.
+pat_key='-----BEGIN[ A-Z]*PRIVATE KEY-----'
+pat_tok='(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{12,}|AIza[0-9A-Za-z_-]{30,}|glpat-[A-Za-z0-9_-]{20,})'
+pat_lit='(password|passwd|pwd|secret|api[_-]?key|apikey|auth[_-]?token|access[_-]?token|private[_-]?key)[[:space:]]*[:=][[:space:]]*.?[A-Za-z0-9/+_-]{12,}'
+
+# Tanda bahwa itu bukan rahasia asli (placeholder, referensi env, dsb)
+safe='process\.env|os\.environ|getenv|ENV\[|System\.getenv|\$\{|\$\(|<[A-Za-z_]+>|xxx+|placeholder|your[_-]|example|changeme|dummy|sample|REDACTED|\*\*\*|TODO|FIXME|import |require\(|from [\"'"'"']'
+
+for f in $staged; do
+  case "$f" in
+    *.example|*.sample|*.template|*.lock|*.md|*.svg|*.png|*.jpg|*.gif|*.pdf) continue ;;
+  esac
+
+  content=$(git show ":$f" 2>/dev/null) || continue
+  [ -z "$content" ] && continue
+
+  # Token penyedia & private key: cocokkan persis huruf besar-kecilnya, dan
+  # jangan disaring daftar-aman — bentuknya sudah cukup spesifik.
+  hit=$(printf '%s\n' "$content" | grep -nE -e "$pat_key|$pat_tok" | head -3)
+
+  # Literal rahasia: lebih longgar, jadi perlu disaring daftar-aman.
+  if [ -z "$hit" ]; then
+    hit=$(printf '%s\n' "$content" \
+      | grep -nEi -e "$pat_lit" \
+      | grep -vEi -e "$safe" \
+      | head -3)
+  fi
+
+  if [ -n "$hit" ]; then
+    echo "COMMIT DITOLAK — isi mencurigakan di $f:"
+    printf '%s\n' "$hit" | cut -c1-110 | sed 's/^/  /'
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  cat <<'MSG'
+
+Kalau ini memang bukan rahasia asli, lewati dengan:
+  git commit --no-verify
+
+Tapi periksa dulu dengan teliti. Rahasia yang sudah masuk riwayat git
+harus dianggap bocor — menghapus commit saja tidak cukup, kredensialnya
+wajib diganti di sistem asal.
+MSG
+  exit 1
+fi
+
+exit 0

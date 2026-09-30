@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Setelah commit kode, ikut menyimpan perubahan dokumen konteks.
+#
+# Tujuannya: jurnal, peta repo, dan status kerja tidak tertinggal sebagai
+# perubahan lokal yang belum ter-commit — sehingga session berikutnya (atau
+# mesin lain) selalu mendapat konteks terbaru.
+#
+# Portable: ini git hook biasa, jalan di agent manapun.
+# Dipasang oleh .agent/scripts/install-hooks.sh
+
+set -u
+
+# Jangan berjalan saat rebase/merge/cherry-pick sedang berlangsung
+gitdir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+for marker in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD BISECT_LOG; do
+  [ -e "$gitdir/$marker" ] && exit 0
+done
+
+# Cegah rekursi: commit dari hook ini tidak boleh memicu hook ini lagi
+[ -n "${AGENT_CONTEXT_COMMIT:-}" ] && exit 0
+
+# Apakah ada perubahan dokumen konteks yang belum ter-commit?
+changed=$(git status --porcelain -- .agent/context .agent/memory 2>/dev/null)
+[ -z "$changed" ] && exit 0
+
+# Jangan ikut sertakan apa pun yang tampak rahasia
+risky=$(printf '%s\n' "$changed" | awk '{print $2}' \
+  | grep -iE '\.(env|key|pem)$|credentials|secrets?\.' || true)
+if [ -n "$risky" ]; then
+  echo "[harness] Dokumen konteks TIDAK di-commit otomatis — ada berkas mencurigakan:"
+  printf '%s\n' "$risky" | sed 's/^/  /'
+  exit 0
+fi
+
+AGENT_CONTEXT_COMMIT=1 \
+  git add .agent/context .agent/memory 2>/dev/null
+
+if git diff --cached --quiet 2>/dev/null; then
+  exit 0
+fi
+
+AGENT_CONTEXT_COMMIT=1 \
+  git commit --no-verify -q -m "docs(agent): update context after $(git log -1 --format=%h HEAD~0 2>/dev/null || echo commit)" 2>/dev/null \
+  && echo "[harness] Dokumen konteks ikut tersimpan."
+
+exit 0

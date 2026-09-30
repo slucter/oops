@@ -1,0 +1,68 @@
+<%- include('partials/layout-head', { title: server.name + ' - sxops' }) %>
+  <header>
+    <a href="/">sxops</a>
+    <div>
+      <span class="meta"><%= username %></span>
+      <form class="inline" method="post" action="/logout">
+        <button type="submit">Keluar</button>
+      </form>
+    </div>
+  </header>
+  <main>
+    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
+    <h1><%= server.name %></h1>
+    <p class="meta">
+      <%= server.host %>:<%= server.port %> ·
+      <%= server.user %><% if (server.via) { %> · via <%= server.via %><% } %>
+    </p>
+
+    <% const status = server.lastCheck ? server.lastCheck.status : 'unknown'; %>
+    <p><span class="badge badge-<%= status %>"><%= status.toUpperCase() %></span></p>
+    <% if (server.lastCheck && server.lastCheck.error_message) { %>
+      <p class="error"><%= server.lastCheck.error_message %></p>
+    <% } %>
+
+    <% if (server.hasDocker) { %>
+      <h2>Docker (docker ps -a)</h2>
+      <% if (server.docker && server.docker.raw_output) { %>
+        <p class="meta">Diambil: <%= server.docker.checked_at %></p>
+        <pre><%= server.docker.raw_output %></pre>
+      <% } else if (server.docker && server.docker.error_message) { %>
+        <p class="error"><%= server.docker.error_message %></p>
+      <% } else { %>
+        <p class="meta">Belum ada data.</p>
+      <% } %>
+    <% } %>
+
+    <h2>Port listen (sudo ss -tulnp)</h2>
+    <% if (server.ports && server.ports.raw_output) { %>
+      <p class="meta">Diambil: <%= server.ports.checked_at %></p>
+      <pre><%= server.ports.raw_output %></pre>
+    <% } else if (server.ports && server.ports.error_message) { %>
+      <p class="error"><%= server.ports.error_message %></p>
+    <% } else { %>
+      <p class="meta">Belum ada data.</p>
+    <% } %>
+
+    <h2>Riwayat status</h2>
+    <% if (server.history.length === 0) { %>
+      <p class="meta">Belum ada perubahan status tercatat.</p>
+    <% } else { %>
+      <table>
+        <thead>
+          <tr><th>Waktu</th><th>Dari</th><th>Ke</th></tr>
+        </thead>
+        <tbody>
+          <% for (const h of server.history) { %>
+            <tr>
+              <td><%= h.changed_at %></td>
+              <td><%= h.from_status || '-' %></td>
+              <td><span class="badge badge-<%= h.to_status %>"><%= h.to_status.toUpperCase() %></span></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    <% } %>
+  </main>
+</body>
+</html>

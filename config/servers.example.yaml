@@ -1,0 +1,43 @@
+# Salin file ini jadi config/servers.yaml lalu isi dengan data server nyata.
+# servers.yaml TIDAK di-commit (lihat .gitignore) karena berisi topologi
+# jaringan internal yang sensitif.
+#
+# Field per server:
+#   id          - unik, dipakai sebagai key internal (huruf/angka/strip)
+#   name        - nama tampilan di dashboard
+#   group       - pengelompokan, mis. "kantor" atau nama client
+#   host        - hostname atau IP
+#   port        - port SSH (default 22)
+#   user        - username SSH
+#   ssh_key     - path absolut ke private key (di luar repo), mis. C:/keys/id_ed25519
+#   via         - opsional, id server lain yang jadi jump host/bastion
+#   has_docker  - true kalau server ini punya Docker dan perlu dicek `docker ps -a`
+
+servers:
+  - id: bastion-kantor
+    name: Bastion Kantor
+    group: kantor
+    host: 203.0.113.10
+    port: 22
+    user: opsadmin
+    ssh_key: C:/keys/bastion_kantor.key
+    has_docker: false
+
+  - id: app-server-01
+    name: App Server 01 (internal)
+    group: kantor
+    host: 10.10.10.10
+    port: 22
+    user: opsadmin
+    ssh_key: C:/keys/bastion_kantor.key
+    via: bastion-kantor
+    has_docker: true
+
+  - id: client-acme-web
+    name: ACME Web Server
+    group: client-acme
+    host: 198.51.100.20
+    port: 22
+    user: deploy
+    ssh_key: C:/keys/client_acme.key
+    has_docker: true

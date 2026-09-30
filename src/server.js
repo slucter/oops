@@ -1,0 +1,41 @@
+require('dotenv').config();
+
+const path = require('path');
+const express = require('express');
+const session = require('express-session');
+
+const requireAuth = require('./middleware/requireAuth');
+const authRoutes = require('./routes/auth');
+const dashboardRoutes = require('./routes/dashboard');
+const scheduler = require('./scheduler');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+if (!process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET belum diset di .env');
+}
+
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+app.use(express.urlencoded({ extended: false }));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 8,
+    },
+  })
+);
+
+app.use(authRoutes);
+app.use(requireAuth, dashboardRoutes);
+
+app.listen(PORT, () => {
+  console.log(`[server] sxops dashboard jalan di http://localhost:${PORT}`);
+  scheduler.start();
+});

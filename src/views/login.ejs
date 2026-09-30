@@ -1,0 +1,22 @@
+<%- include('partials/layout-head', { title: 'Login - sxops' }) %>
+  <main>
+    <div class="login-box">
+      <h1>sxops</h1>
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+      <form method="post" action="/login">
+        <p>
+          <label>Username</label>
+          <input type="text" name="username" required autofocus />
+        </p>
+        <p>
+          <label>Password</label>
+          <input type="password" name="password" required />
+        </p>
+        <button type="submit">Masuk</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>

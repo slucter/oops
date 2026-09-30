@@ -1,0 +1,51 @@
+<%- include('partials/layout-head', { title: 'Dashboard - sxops' }) %>
+  <header>
+    <a href="/">sxops</a>
+    <div>
+      <span class="meta"><%= username %></span>
+      <form class="inline" method="post" action="/logout">
+        <button type="submit">Keluar</button>
+      </form>
+    </div>
+  </header>
+  <main>
+    <h1>Status Server</h1>
+    <%
+      const groups = {};
+      for (const s of servers) {
+        groups[s.group] = groups[s.group] || [];
+        groups[s.group].push(s);
+      }
+    %>
+    <% for (const groupName of Object.keys(groups)) { %>
+      <div class="group-label"><%= groupName %></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Server</th>
+            <th>Host</th>
+            <th>Status</th>
+            <th>Latency</th>
+            <th>Cek terakhir</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% for (const s of groups[groupName]) { %>
+            <% const status = s.lastCheck ? s.lastCheck.status : 'unknown'; %>
+            <tr>
+              <td>
+                <a class="server-link" href="/server/<%= s.id %>"><%= s.name %></a>
+                <% if (s.via) { %><div class="meta">via <%= s.via %></div><% } %>
+              </td>
+              <td><%= s.host %>:<%= s.port %></td>
+              <td><span class="badge badge-<%= status %>"><%= status.toUpperCase() %></span></td>
+              <td><%= s.lastCheck && s.lastCheck.latency_ms != null ? s.lastCheck.latency_ms + ' ms' : '-' %></td>
+              <td class="meta"><%= s.lastCheck ? s.lastCheck.checked_at : 'belum pernah dicek' %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    <% } %>
+  </main>
+</body>
+</html>
