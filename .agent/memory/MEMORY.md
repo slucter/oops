@@ -15,7 +15,7 @@ Tidak pernah menulis nilai rahasia di sini.
 - [preferensi.md](preferensi.md) — cara kerja, gaya komunikasi, keputusan setup harness
 
 ## Arahan yang pernah diberikan
-_(belum ada — tambahkan saat pemilik projek mengoreksi atau menyetujui pendekatan)_
+- [naikkan-versi-agent.md](naikkan-versi-agent.md) — ubah `agent/`, naikkan versinya sendiri tanpa diminta; versi = mekanisme update, bukan catatan
 
 ## Konteks projek
 _(belum ada — tambahkan saat ada tenggat, pemangku kepentingan, atau alasan di balik pekerjaan)_

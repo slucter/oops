@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook projek Oops.
+#
+# Aktifkan sekali per clone:
+#   git config core.hooksPath .githooks
+#
+# Dilewati dengan `git commit --no-verify` kalau memang perlu — tapi sebutkan
+# alasannya, jangan dilewati diam-diam.
+
+set -u
+
+gagal=0
+
+# --- Versi agent harus naik kalau kode agent berubah ---------------------
+# Versi agent adalah mekanisme update, bukan catatan administratif: server
+# memakainya untuk memutuskan client mana yang perlu di-update. Kode berubah
+# tanpa versi naik = perbaikan tidak pernah sampai ke client, tanpa error.
+if command -v node >/dev/null 2>&1; then
+  if [ -f agent/cek-versi-naik.js ]; then
+    node agent/cek-versi-naik.js || gagal=1
+  fi
+  # Versi di version.js dan agent.py harus sepakat.
+  if [ -f agent/cek-versi.js ]; then
+    node agent/cek-versi.js >/dev/null || { node agent/cek-versi.js; gagal=1; }
+  fi
+fi
+
+# --- Jangan pernah commit berkas rahasia --------------------------------
+rahasia=$(git diff --cached --name-only | grep -E '(^|/)\.env$|\.pem$|\.key$|id_rsa' || true)
+if [ -n "$rahasia" ]; then
+  echo ""
+  echo "  COMMIT DITOLAK: ada berkas yang tampak berisi rahasia."
+  printf '     - %s\n' $rahasia
+  echo ""
+  echo "  Nilai asli hanya di .env (tidak di-commit). Katalognya di .env.example."
+  echo ""
+  gagal=1
+fi
+
+exit $gagal

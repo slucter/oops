@@ -190,6 +190,18 @@ Versi lengkapnya di `.agent/rules/00-core.md`. Ini intinya:
 7. **Bahasa:** komunikasi dengan pemilik projek dalam Bahasa Indonesia. Nama
    variabel, pesan commit, dan komentar kode dalam Bahasa Inggris.
 
+8. **Ubah `agent/`, naikkan versinya** — di `agent/version.js` **dan**
+   `agent/agent.py`, sebagai bagian dari perubahan itu, tanpa diminta. Versi
+   agent adalah mekanisme update: server memakainya untuk memutuskan client
+   mana yang perlu di-update. Kode berubah tanpa versi naik berarti perbaikan
+   tidak pernah sampai ke client mana pun, dan tidak ada error yang memberi
+   tahu. Alasan lengkapnya di `.agent/memory/naikkan-versi-agent.md`.
+
+   Pasang penjaganya sekali per clone:
+   ```bash
+   npm run pasang-hook
+   ```
+
 ---
 
 ## Kalau ini session pertamamu di projek ini
