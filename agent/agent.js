@@ -318,11 +318,13 @@ function langkahAman() {
  */
 function langkahDocker() {
   if (!punya('docker')) return [];
+  // Urutan dari paling ringan ke paling berat: kalau `builder prune` yang
+  // berat gagal, langkah-langkah ringan sudah selesai dan terlaporkan.
   return [
-    ['cache build docker dibuang', 'docker builder prune -f', false],
-    ['image docker dangling dibuang', 'docker image prune -f', false],
     ['container mati dibuang', 'docker container prune -f', false],
     ['network tak terpakai dibuang', 'docker network prune -f', false],
+    ['image docker dangling dibuang', 'docker image prune -f', false],
+    ['cache build docker dibuang', 'docker builder prune -f', false],
   ];
 }
 
@@ -352,7 +354,11 @@ function jalankanOptimasi(sertakanDocker, lapor) {
     if (lapor) { try { lapor(nomor, total, nama); } catch { /* kabar tidak boleh menggagalkan */ } }
     const perintah = (perluSudo && !isRoot) ? `sudo -n ${perintahAsli}` : perintahAsli;
     try {
-      const out = execSync(perintah, { encoding: 'utf8', timeout: 120000, stdio: 'pipe' });
+      // Docker prune pada cache besar bisa memakan belasan menit; timeout
+      // seragam 120 detik membunuhnya di tengah, dan cache yang setengah
+      // terhapus tidak membebaskan apa pun.
+      const batas = /docker/.test(perintah) ? 1200000 : 300000;
+      const out = execSync(perintah, { encoding: 'utf8', timeout: batas, stdio: 'pipe' });
       hasil.push({ nama, ok: true, pesan: (out || '').trim().slice(0, 300) || null });
     } catch (err) {
       hasil.push({ nama, ok: false, pesan: (err.message || '').slice(0, 300) });

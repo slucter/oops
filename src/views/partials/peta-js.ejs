@@ -99,6 +99,9 @@
       }
 
       html += '<div class="field-hint" style="margin-top:.7rem;">'
+        + 'Dipetakan: <b>' + esc(h.root || '/') + '</b> — bukan seluruh disk. '
+        + 'Folder sistem seperti /usr dan /var/lib memang besar tapi isinya bukan sesuatu '
+        + 'yang bisa dibersihkan, dan melewatinya membuat pemindaian jauh lebih cepat.<br>'
         + 'Isi node_modules, .git, dan .venv tidak dibongkar — foldernya tetap dihitung utuh, '
         + 'hanya rinciannya yang tidak ditampilkan supaya peta tidak penuh derau.</div>';
 

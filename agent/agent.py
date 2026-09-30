@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.4.2'
+AGENT_VERSION = '1.5.0'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -107,6 +107,14 @@ class WebSocket:
         # Setelah handshake, baca dengan timeout supaya loop utama tidak
         # terblokir selamanya kalau server diam — koneksi menggantung
         # tanpa batas adalah cara paling umum agent "hidup tapi bisu".
+        #
+        # Timeout ini berlaku untuk KIRIM maupun TERIMA. Itu pernah jadi
+        # masalah nyata: saat `docker builder prune` membanjiri I/O server,
+        # sendall() melebihi batas, melempar socket.timeout, dan agent
+        # terputus lalu di-restart systemd berulang kali. Karena itu
+        # send_text() menaikkan batasnya sementara saat mengirim — lihat
+        # _send_frame().
+        self._baca_timeout = timeout
         self.sock.settimeout(timeout)
 
     def _handshake(self, host, port, path, secure):
@@ -229,8 +237,20 @@ class WebSocket:
             header = struct.pack('!BBH', 0x80 | opcode, 0x80 | 126, n)
         else:
             header = struct.pack('!BBQ', 0x80 | opcode, 0x80 | 127, n)
+        # Batas tulis dilonggarkan jauh melebihi batas baca. Saat server
+        # sibuk berat (docker prune, du seluruh disk), sendall bisa tertahan
+        # puluhan detik — dan agent yang terputus karena itu justru membuat
+        # pekerjaannya gagal di tengah. Dikembalikan ke batas baca setelah
+        # selesai supaya loop utama tetap punya timeout yang ketat.
         with self._send_lock:
-            self.sock.sendall(header + mask + masked)
+            try:
+                self.sock.settimeout(120)
+                self.sock.sendall(header + mask + masked)
+            finally:
+                try:
+                    self.sock.settimeout(self._baca_timeout)
+                except Exception:
+                    pass
 
     def send_text(self, text):
         self._send_frame(self.OP_TEXT, text.encode('utf-8'))
@@ -481,11 +501,16 @@ def _langkah_docker():
     """
     if not _punya('docker'):
         return []
+    # Urutan dari yang paling ringan ke paling berat. `builder prune` bisa
+    # menghapus gigabyte cache dan membanjiri I/O sampai belasan menit;
+    # menaruhnya terakhir berarti langkah-langkah ringan sudah selesai dan
+    # terlaporkan lebih dulu, jadi kalau yang berat gagal pun hasilnya tidak
+    # hilang semua.
     return [
-        ('cache build docker dibuang', 'docker builder prune -f', False),
-        ('image docker dangling dibuang', 'docker image prune -f', False),
         ('container mati dibuang', 'docker container prune -f', False),
         ('network tak terpakai dibuang', 'docker network prune -f', False),
+        ('image docker dangling dibuang', 'docker image prune -f', False),
+        ('cache build docker dibuang', 'docker builder prune -f', False),
     ]
 
 
@@ -578,7 +603,11 @@ def jalankan_optimasi(sertakan_docker=False, lapor=None):
         t_denyut = threading.Thread(target=denyut, daemon=True)
         t_denyut.start()
         try:
-            ok, keluaran = _jalan(perintah)
+            # Docker prune pada cache besar bisa memakan belasan menit.
+            # Timeout 120 detik seragam membuatnya dibunuh di tengah, dan
+            # cache yang setengah terhapus tidak membebaskan apa pun.
+            batas = 1200 if 'docker' in perintah else 300
+            ok, keluaran = _jalan(perintah, timeout=batas)
         finally:
             berhenti.set()
 
@@ -788,7 +817,14 @@ def handle_uninstall_command(ws, req_id):
 # ditelusuri. Membongkar node_modules menghasilkan ribuan folder kecil yang
 # memenuhi peta tanpa memberi tahu apa pun yang berguna: yang perlu diketahui
 # cukup "node_modules ini 400 MB", bukan rincian tiap paketnya.
-SKIP_ISI = ['node_modules', '.git', '.cache/yarn', '.venv', 'vendor/bundle']
+SKIP_ISI = [
+    'node_modules', '.git', '.cache/yarn', '.venv', 'vendor/bundle',
+    # Layer image Docker: bisa ribuan folder dengan nama hash yang tidak
+    # berarti apa-apa bagi manusia. Totalnya tetap terhitung di
+    # /var/lib/docker, dan cara membersihkannya bukan menghapus folder ini
+    # satu per satu — melainkan tombol Optimize dengan opsi Docker.
+    'overlay2', 'aufs',
+]
 
 # Filesystem virtual: isinya bukan data di disk, jadi memetakannya
 # menyesatkan (mis. /proc/kcore tampak sebesar seluruh RAM).
@@ -807,7 +843,30 @@ def _fmt_gb(kb):
     return '%.1f GB' % (kb / 1024 / 1024)
 
 
-def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
+# Folder yang dipetakan secara bawaan.
+#
+# Memetakan seluruh `/` menghabiskan sebagian besar waktu di /usr, /var/lib,
+# dan /snap — besar, tapi itu berkas sistem yang tidak bisa dibersihkan
+# pemilik server. Yang benar-benar bisa ditindaklanjuti ada di tiga tempat
+# ini, dan membatasinya membuat pemindaian jauh lebih cepat di server yang
+# sedang tertekan.
+#
+# /var/log ikut karena log yang tidak dirotasi adalah penyebab disk penuh
+# yang paling sering, dan itu memang bisa dibersihkan.
+PETA_TARGET = [
+    '/var/www',        # berkas aplikasi web
+    '/home',           # data pengguna, backup, log aplikasi
+    '/tmp',            # berkas sementara yang sering lupa dibersihkan
+    '/var/log',        # termasuk /var/log/journal — log tidak dirotasi adalah
+                       # penyebab disk penuh yang paling sering
+    '/var/lib/docker', # image, volume, dan cache build bisa puluhan GB
+    '/opt',            # aplikasi yang dipasang manual
+    '/srv',            # data layanan pada sebagian distro
+]
+
+
+def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None,
+               target=None):
     """
     Petakan folder yang membuat disk bengkak, sampai ke folder terdalam.
 
@@ -837,8 +896,26 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
     total_kb = ((st.f_blocks - st.f_bfree) * st.f_frsize) // 1024
     hasil['totalKb'] = total_kb
 
-    ambang_kb = max(1024, int(total_kb * min_persen / 100))
-    hasil['ambangKb'] = ambang_kb
+    # Hanya folder target yang benar-benar ada. Tanpa penyaringan ini, `du`
+    # mengeluh tentang path yang tidak ada dan `find` ikut gagal.
+    daftar = target if target else PETA_TARGET
+    ada = [t for t in daftar if os.path.isdir(t)]
+    if not ada:
+        hasil['catatan'].append(
+            'Tidak ada folder target yang ditemukan (%s).' % ', '.join(daftar))
+        return hasil
+    hasil['root'] = ', '.join(ada)
+    arg_target = ' '.join("'%s'" % t.replace("'", "'\\''") for t in ada)
+
+    # Ambang ditetapkan SETELAH `du` selesai, dihitung dari ukuran target —
+    # bukan dari total disk, dan bukan lewat lintasan tambahan.
+    #
+    # Kalau dihitung dari total disk 77 GB sementara /home hanya 3 GB,
+    # ambang 0.5% = 385 MB akan menyaring habis seluruh isinya dan peta
+    # tampak kosong — padahal justru di situ yang ingin dilihat. Ukuran
+    # target sudah ada di hasil `du` (baris untuk tiap folder target), jadi
+    # tidak perlu memindai ulang.
+    ambang_kb = None
 
     # `nice` saja, TANPA `ionice -c3`.
     #
@@ -848,6 +925,20 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
     # `nice` sudah cukup untuk mengalah pada CPU tanpa membuat pemindaian
     # kelaparan I/O.
     prefix = 'nice -n 19 ' if _punya('nice') else ''
+
+    is_root = os.getuid() == 0
+    bisa_sudo = _sudo_tanpa_sandi()
+
+    # Sebagian target (mis. /var/lib/docker) hanya terbaca root. Tanpa sudo,
+    # `du` diam-diam melewatinya dan peta menunjukkan angka yang jauh lebih
+    # kecil dari kenyataan — lebih buruk daripada tidak menampilkannya sama
+    # sekali, karena terlihat seperti fakta.
+    if not is_root and bisa_sudo:
+        prefix = 'sudo -n ' + prefix
+    elif not is_root:
+        hasil['catatan'].append(
+            'Tanpa sudo: folder yang hanya terbaca root (mis. /var/lib/docker) '
+            'mungkin tampak lebih kecil dari sebenarnya.')
 
     exclude = ' '.join("--exclude='*/%s/*'" % s for s in SKIP_ISI)
     exclude += ' ' + ' '.join("--exclude='%s/*'" % s for s in SKIP_MOUNT)
@@ -866,8 +957,8 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
         # Berkas swap/hibernasi dikecualikan supaya tidak disangka sampah.
         cari_exclude += ' ' + ' '.join("-path '%s' -prune -o" % s for s in SKIP_FILE)
         perintah = (
-            "%sfind / -xdev %s -type f -size +%dM -printf '%%s\\t%%p\\n' 2>/dev/null "
-            "| sort -rn | head -%d" % (prefix, cari_exclude, min_file_mb, maks_file)
+            "%sfind %s -xdev %s -type f -size +%dM -printf '%%s\\t%%p\\n' 2>/dev/null "
+            "| sort -rn | head -%d" % (prefix, arg_target, cari_exclude, min_file_mb, maks_file)
         )
         ok_f, out_f = _jalan(perintah, timeout=1800)
         if ok_f and out_f:
@@ -896,14 +987,15 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
     t_kabar.start()
 
     try:
-        ok, out = _jalan('%sdu -xk %s / 2>/dev/null' % (prefix, exclude), timeout=1800)
+        ok, out = _jalan('%sdu -xk %s %s 2>/dev/null' % (prefix, exclude, arg_target),
+                         timeout=1800)
     finally:
         berhenti_kabar.set()
     if not ok and not out:
         hasil['catatan'].append('Pemindaian gagal atau tidak menghasilkan apa pun.')
         return hasil
 
-    folder = []
+    semua = []
     for baris in out.split('\n'):
         if not baris.strip():
             continue
@@ -914,11 +1006,21 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None):
             kb = int(bagian[0])
         except ValueError:
             continue
-        path = bagian[1].strip()
-        if kb < ambang_kb:
-            continue
-        folder.append({'path': path, 'kb': kb,
-                       'level': 0 if path == '/' else path.count('/')})
+        semua.append({'path': bagian[1].strip(), 'kb': kb})
+
+    # Ukuran target = baris `du` untuk folder target itu sendiri. Dari situ
+    # ambangnya dihitung, tanpa lintasan tambahan.
+    set_target = set(ada)
+    target_kb = sum(f['kb'] for f in semua if f['path'] in set_target)
+    ambang_kb = max(1024, int((target_kb or total_kb) * min_persen / 100))
+    hasil['ambangKb'] = ambang_kb
+    hasil['targetKb'] = target_kb or None
+
+    folder = [
+        {'path': f['path'], 'kb': f['kb'],
+         'level': 0 if f['path'] == '/' else f['path'].count('/')}
+        for f in semua if f['kb'] >= ambang_kb
+    ]
 
     folder.sort(key=lambda f: f['path'])
 
@@ -1102,11 +1204,23 @@ def session():
 
     def metric_loop():
         send_metric(ws)
+        gagal_beruntun = 0
         while not stop.wait(INTERVAL_MS / 1000.0):
             try:
                 send_metric(ws)
-            except Exception:
-                break
+                gagal_beruntun = 0
+            except Exception as e:
+                # JANGAN langsung berhenti. Saat server sibuk berat (docker
+                # prune, du seluruh disk), perintah pengumpul metrik bisa
+                # melewati timeout-nya — itu gangguan sesaat, bukan tanda
+                # koneksi mati. Versi sebelumnya `break` di sini, sehingga
+                # satu timeout membuat agent berhenti melapor selamanya dan
+                # server menandainya DOWN padahal ia sehat.
+                gagal_beruntun += 1
+                if gagal_beruntun >= 5:
+                    print('[agent] metrik gagal %d kali beruntun, hentikan sesi: %s'
+                          % (gagal_beruntun, e), file=sys.stderr)
+                    break
 
     t = threading.Thread(target=metric_loop, daemon=True)
     t.start()
