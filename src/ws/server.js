@@ -132,6 +132,36 @@ function attach(httpServer) {
         pendingUninstalls.delete(id);
         pending.resolve({ ok: true, message: 'Agent memutus koneksi — tanda pencabutan dijalankan.' });
       }
+
+      // Optimasi dan pemetaan: BERBEDA dari update dan uninstall di atas.
+      // Di sana putusnya koneksi adalah tanda berhasil (agent memang
+      // me-restart dirinya). Di sini agent tidak seharusnya putus — kalau
+      // terjadi, pekerjaannya benar-benar terhenti di tengah.
+      //
+      // Tanpa pembersihan ini, permintaannya menggantung sampai timeout 15
+      // menit sementara dashboard menampilkan "memulai…" tanpa perubahan.
+      // Persis itu yang terjadi saat agent di-restart oleh Update semua
+      // beberapa saat setelah optimasi dimulai.
+      for (const [id, pending] of pendingOptimize) {
+        if (!id.startsWith(`${client.id}-opt-`)) continue;
+        clearTimeout(pending.timer);
+        pendingOptimize.delete(id);
+        pending.resolve({
+          ok: false,
+          pesan: 'Agent terputus di tengah optimasi (mungkin restart). Coba lagi setelah client tersambung.',
+        });
+      }
+
+      for (const [id, pending] of pendingPeta) {
+        if (!id.startsWith(`${client.id}-peta-`)) continue;
+        clearTimeout(pending.timer);
+        pendingPeta.delete(id);
+        pending.resolve({
+          ok: false,
+          pesan: 'Agent terputus di tengah pemindaian (mungkin restart). Coba lagi setelah client tersambung.',
+        });
+      }
+
       console.log(`[ws] client "${client.name}" (id=${client.id}) terputus`);
     });
 

@@ -259,6 +259,36 @@ function agentTiruan(token, perilaku) {
   cek('hasil besar tetap diterima', r.json.target[0].status === 'selesai');
   cek('semua 30 langkah terbawa', r.json.target[0].langkah.length === 30);
 
+  console.log('\n=== 9. Agent PUTUS di tengah optimasi tidak menggantung ===');
+  // Regresi: pendingOptimize tidak dibersihkan saat koneksi putus, jadi
+  // permintaannya menggantung sampai timeout 15 menit sementara dashboard
+  // menampilkan "memulai…" tanpa perubahan. Terjadi saat agent di-restart
+  // oleh "Update semua" beberapa saat setelah optimasi dimulai.
+  const c7 = clientStore.createClient({ name: 'Putus Tengah', groupId: null });
+  const ws7 = new WebSocket(`ws://127.0.0.1:31988/agent?token=${c7.token}`);
+  await new Promise((res) => ws7.on('open', res));
+  ws7.on('message', (raw) => {
+    const mm = JSON.parse(raw.toString());
+    if (mm.type !== 'optimize') return;
+    ws7.send(JSON.stringify({ type: 'optimize_progress', id: mm.id, nomor: 0, total: 0, nama: 'memulai…' }));
+    // Meniru agent yang mati/restart di tengah kerja.
+    setTimeout(() => ws7.terminate(), 120);
+  });
+  await sleep(200);
+
+  const tPutus = Date.now();
+  r = await kirim('POST', '/optimize', { client_ids: [c7.id] });
+  const job7 = r.json.jobId;
+  r = await kirim('GET', `/optimize/${job7}`);
+  for (let i = 0; i < 60 && !(r.json && r.json.selesai); i++) {
+    await sleep(150);
+    r = await kirim('GET', `/optimize/${job7}`);
+  }
+  const lamaPutus = Date.now() - tPutus;
+  cek('selesai cepat, tidak menunggu timeout', lamaPutus < 5000);
+  cek('ditandai gagal, bukan menggantung', r.json.target[0].status === 'gagal');
+  cek('pesannya menjelaskan sebabnya', /terputus/i.test(r.json.target[0].pesan || ''));
+
   console.log(gagal === 0 ? '\n>>> SEMUA LULUS' : `\n>>> ${gagal} GAGAL`);
   try { ws1.close(); ws2.close(); wsN.close(); } catch {}
   server.close(); db.close();

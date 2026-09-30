@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.4.1'
+AGENT_VERSION = '1.4.2'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -558,7 +558,30 @@ def jalankan_optimasi(sertakan_docker=False, lapor=None):
                 pass  # kabar kemajuan tidak boleh menggagalkan optimasi
         if butuh_sudo and not is_root:
             perintah = 'sudo -n ' + perintah
-        ok, keluaran = _jalan(perintah)
+
+        # Kabar berkala SELAMA langkah berjalan, bukan hanya sebelumnya.
+        # Satu langkah bisa memakan menit (journal besar, docker prune), dan
+        # tanpa ini layar diam sepanjang itu — tidak ada cara membedakan
+        # "sedang bekerja" dari "macet".
+        berhenti = threading.Event()
+
+        def denyut(nm=nama, no=nomor):
+            detik = 0
+            while not berhenti.wait(5):
+                detik += 5
+                if lapor:
+                    try:
+                        lapor(no, total, '%s (%d detik)' % (nm, detik))
+                    except Exception:
+                        pass
+
+        t_denyut = threading.Thread(target=denyut, daemon=True)
+        t_denyut.start()
+        try:
+            ok, keluaran = _jalan(perintah)
+        finally:
+            berhenti.set()
+
         hasil.append({'nama': nama, 'ok': ok,
                       'pesan': keluaran[:300] if keluaran else None})
 
