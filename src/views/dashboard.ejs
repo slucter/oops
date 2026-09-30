@@ -47,8 +47,11 @@
             <% const status = s.lastCheck ? s.lastCheck.status : 'unknown'; %>
             <tr>
               <td>
-                <a class="server-link" href="/server/<%= s.id %>"><%= s.name %></a>
-                <% if (s.viaName) { %><div class="meta">via <%= s.viaName %></div><% } %>
+                <span style="padding-left: <%= s.depth * 1.5 %>em;">
+                  <% if (s.depth > 0) { %><span class="meta">&#8627; </span><% } %>
+                  <a class="server-link" href="/server/<%= s.id %>"><%= s.name %></a>
+                </span>
+                <% if (s.viaName) { %><div class="meta" style="padding-left: <%= s.depth * 1.5 %>em;">via <%= s.viaName %></div><% } %>
               </td>
               <td><%= s.host %>:<%= s.port %></td>
               <td><span class="badge badge-<%= status %>"><%= status.toUpperCase() %></span></td>
