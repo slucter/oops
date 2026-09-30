@@ -10,6 +10,82 @@ Aturan: jangan pernah menulis nilai rahasia di sini. Sebut namanya saja
 
 <!-- Entri baru ditambahkan tepat di bawah baris ini -->
 
+## 2026-10-01 · Link share read-only + semua client naik ke agent v1.2.0
+
+**Agent:** Claude Code (Opus 5)
+**Branch:** `development` · **Commit:** `f2918ed`
+
+### Selesai
+- **Migrasi agent lama → v1.2.0 Python tuntas.** KST Lab dan KST Balancer
+  dikerjakan langsung lewat SSH; sisanya dijalankan pemilik projek sendiri dari
+  halaman perintah siap-salin yang dibuatkan. Hasil akhir: **11 client, semuanya
+  UP dengan agent 1.2.0** (bertambah 5 client baru dari pemilik projek).
+  Ukuran agent turun dari 236K (Node + node_modules) jadi 32K (Python, satu
+  berkas). Riwayat metrik tiap client utuh karena token tidak diubah.
+- **Link share read-only** (`f2918ed`): bagikan tampilan monitoring tanpa memberi
+  akses login. Dua bentuk — satu client (tombol ⇗ di baris tabel dan halaman
+  detail) atau beberapa client sekaligus (Master → Link Share). Masa berlaku
+  diisi bebas dalam menit, 0 = tanpa batas. Daftar link aktif + tombol Cabut.
+
+### Belum selesai
+- **UI share belum pernah dilihat terender.** Yang diverifikasi: HTML-nya benar,
+  route-nya aman, dan tidak ada tautan ke area berlogin. Tampilannya sendiri
+  belum pernah saya lihat.
+- **Belum ada pembersihan share kedaluwarsa.** Baris `shares` yang sudah lewat
+  masa berlakunya tetap tersimpan selamanya. Tidak berbahaya (sudah ditolak saat
+  diakses) tapi tabelnya akan menumpuk.
+- Cabang Node portable masih belum diuji sebagai instalasi utuh.
+- Telegram masih belum pernah mengirim pesan nyata.
+
+### Keputusan
+- **Halaman share menampilkan SEMUA data, termasuk docker dan port.** Saya
+  menyarankan menyembunyikan `ss -tulnp`, `docker ps -a`, dan IP publik karena
+  itu peta serangan kalau URL bocor; pemilik projek memilih menampilkan semua.
+  Karena itu daftar link aktif + tombol Cabut tetap dibuat, supaya link salah
+  kirim bisa dimatikan seketika tanpa menunggu kedaluwarsa.
+- **Token disimpan sebagai hash SHA-256, bukan nilainya.** Kalau database bocor,
+  isinya tidak bisa langsung dipakai membuka halaman share. Konsekuensi: token
+  tidak bisa ditampilkan ulang — hilang berarti cabut lalu buat baru.
+- **Client yang ikut share disimpan eksplisit per client, bukan per grup.** Kalau
+  share menyimpan "grup KST", client baru yang nanti masuk grup itu akan ikut
+  terbagikan tanpa ada yang memutuskan. Memilih grup di UI hanya jalan pintas
+  mencentang anggotanya saat itu. Ada ujinya.
+- **Kedaluwarsa dihitung SQLite, bukan JavaScript**, supaya memakai acuan waktu
+  yang sama dengan `datetime('now')` saat diperiksa. Dihitung di JS dengan zona
+  waktu lokal, link bisa mati lebih cepat/lambat dari yang diminta.
+- **`share-detail.ejs` diturunkan dari `client-detail.ejs` secara terprogram**,
+  bukan disalin manual — 521 baris yang disalin akan diam-diam menyimpang.
+
+### Jalan buntu
+- **Uji bisa lolos palsu karena mencocokkan nama kelas CSS.** Untuk kedua kalinya
+  di projek ini: `html.includes('btn-danger')` dan `'data-dropdown'` cocok dengan
+  definisi CSS dan skrip dropdown di layout bersama, bukan elemen yang
+  ter-render. **Selalu cocokkan elemen** (`class="..."`, `<div ... data-x>`),
+  jangan nama kelasnya saja.
+- **`shareStore` sempat mengekspor prepared statement sebagai fungsi.**
+  `getById` adalah `db.prepare(...)`, bukan fungsi — pemanggil memanggilnya
+  sebagai fungsi dan tombol Cabut melempar TypeError. Ketemu lewat uji, bukan
+  pembacaan kode. Sekarang diekspor lewat pembungkus `getShareById`.
+- `URLSearchParams(obj)` menggabung nilai array jadi satu string `"1,2"`, bukan
+  mengirimnya berulang seperti checkbox browser. Harus `append()` per elemen.
+
+### Langkah berikutnya
+1. Buka `https://mon.kawandev.xyz`, coba tombol ⇗ di satu baris, dan pastikan
+   halaman share tampil benar — belum pernah diverifikasi secara visual.
+2. Pertimbangkan pembersihan otomatis baris `shares` yang sudah kedaluwarsa.
+3. Buat bot Telegram lalu uji dari `/settings`.
+4. Kalau semua beres, merge `development` -> `master`.
+
+### Catatan
+- `npm test` sekarang menjalankan 4 rangkaian uji.
+- `uji/share-auth.js` dijalankan terhadap `src/server.js` **apa adanya**, bukan
+  aplikasi tiruan — ia yang membuktikan route share lolos `requireAuth`
+  sementara semua halaman lain tetap terkunci. Kalau urutan middleware di
+  `server.js` berubah, uji ini yang menangkapnya.
+- Halaman perintah pasang-ulang yang dibuatkan untuk pemilik projek berisi token
+  client asli, jadi dipublikasikan sebagai artifact privat dan **tidak** masuk
+  repo. Sudah diperiksa.
+
 ## 2026-10-01 · Remove client mencabut agent + penjaga versi agent
 
 **Agent:** Claude Code (Opus 5)
