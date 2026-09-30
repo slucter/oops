@@ -1,0 +1,48 @@
+<%
+  // locals: username (string), active (opsional: 'dashboard' | 'master')
+  const _user = typeof username !== 'undefined' && username ? username : '?';
+  const _initial = _user.charAt(0).toUpperCase();
+%>
+<header>
+  <a class="brand" href="/">
+    <span class="brand-badge">&gt;_</span>
+    <span class="brand-text">
+      <span class="name"><b>O</b>OPS</span>
+      <span class="sub">Ops &amp; Performance Sentinel</span>
+    </span>
+  </a>
+
+  <nav class="nav-right">
+    <div class="dropdown" data-dropdown>
+      <button type="button" class="nav-btn" data-dropdown-toggle>
+        Master <span class="caret">▼</span>
+      </button>
+      <div class="dropdown-menu left">
+        <a class="dropdown-item" href="/groups"><span class="ico">▚</span> Group</a>
+      </div>
+    </div>
+
+    <div class="dropdown" data-dropdown>
+      <button type="button" class="nav-btn avatar-btn" data-dropdown-toggle>
+        <span class="avatar"><%= _initial %></span>
+        <%= _user %>
+        <span class="caret">▼</span>
+      </button>
+      <div class="dropdown-menu">
+        <div class="profile-head">
+          <span class="avatar"><%= _initial %></span>
+          <span class="who">
+            <strong><%= _user %></strong>
+            <span><span class="dot-live"></span> Online</span>
+          </span>
+        </div>
+        <a class="dropdown-item" href="/"><span class="ico">▤</span> Dashboard</a>
+        <a class="dropdown-item" href="/groups"><span class="ico">▚</span> Master Group</a>
+        <div class="dropdown-divider"></div>
+        <form method="post" action="/logout">
+          <button type="submit" class="dropdown-item danger"><span class="ico">⏻</span> Sign out</button>
+        </form>
+      </div>
+    </div>
+  </nav>
+</header>

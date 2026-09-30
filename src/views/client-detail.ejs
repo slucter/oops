@@ -1,141 +1,156 @@
 <%- include('partials/layout-head', { title: item.name + ' - Oops' }) %>
-  <header>
-    <a href="/">Oops</a>
-    <div>
-      <span class="meta"><%= username %></span>
-      <form class="inline" method="post" action="/logout">
-        <button type="submit">Keluar</button>
-      </form>
-    </div>
-  </header>
+<%- include('partials/navbar', { username: username }) %>
   <main>
-    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
-    <h1><%= item.name %> <a class="server-link" style="font-size:0.6em;" href="/clients/<%= item.id %>/edit">edit</a></h1>
-    <p class="meta">
-      <%= item.hostname || 'hostname belum diketahui' %>
-      <% if (item.groupName) { %> · <%= item.groupName %><% } %>
-    </p>
-
-    <p><span class="badge badge-<%= item.status %>"><%= item.status.toUpperCase() %></span></p>
-    <p class="meta">Terakhir terlihat: <%= item.lastSeenAt || 'belum pernah connect' %></p>
+    <div class="page-head">
+      <div>
+        <h1><%= item.name %></h1>
+        <div class="page-sub">
+          <%= item.hostname || 'hostname belum diketahui' %>
+          <% if (item.groupName) { %> &middot; <%= item.groupName %><% } %>
+          &middot; last seen <%= item.lastSeenAt || 'never' %>
+        </div>
+      </div>
+      <div class="actions">
+        <span class="badge badge-<%= item.status %>"><%= item.status.toUpperCase() %></span>
+        <a class="btn btn-ghost" href="/clients/<%= item.id %>/edit">Edit</a>
+        <a class="btn btn-ghost" href="/">&larr; Dashboard</a>
+      </div>
+    </div>
 
     <% if (item.metric) { %>
       <div class="stat-grid">
         <div class="stat-card">
-          <div class="label">RAM</div>
+          <div class="label">Memory</div>
           <div class="value"><%- include('partials/usage-bar', { percent: item.metric.memPercent }) %></div>
           <% if (item.metric.mem_total_mb != null) { %>
             <div class="sub"><%= (item.metric.mem_used_mb / 1024).toFixed(1) %> GB / <%= (item.metric.mem_total_mb / 1024).toFixed(1) %> GB</div>
           <% } %>
         </div>
         <div class="stat-card">
-          <div class="label">Disk (/)</div>
+          <div class="label">Disk /</div>
           <div class="value"><%- include('partials/usage-bar', { percent: item.metric.diskPercent }) %></div>
           <% if (item.metric.disk_total_gb != null) { %>
             <div class="sub"><%= item.metric.disk_used_gb %> GB / <%= item.metric.disk_total_gb %> GB</div>
           <% } %>
         </div>
         <div class="stat-card">
-          <div class="label">CPU Load (1m / 5m / 15m)</div>
-          <div class="value"><%= item.metric.load_1m != null ? item.metric.load_1m : '-' %></div>
+          <div class="label">CPU load</div>
+          <div class="value"><%= item.metric.load_1m != null ? item.metric.load_1m : '—' %></div>
           <div class="sub">
-            <%= item.metric.load_5m != null ? item.metric.load_5m : '-' %> /
-            <%= item.metric.load_15m != null ? item.metric.load_15m : '-' %>
+            5m <%= item.metric.load_5m != null ? item.metric.load_5m : '—' %>
+            &middot; 15m <%= item.metric.load_15m != null ? item.metric.load_15m : '—' %>
           </div>
         </div>
         <div class="stat-card">
           <div class="label">Uptime</div>
-          <div class="value" style="font-size: 1rem;"><%= formatUptime(item.metric.uptime_seconds) %></div>
+          <div class="value" style="font-size:1rem;"><%= formatUptime(item.metric.uptime_seconds) %></div>
+          <div class="sub">received <%= item.metric.received_at %></div>
         </div>
       </div>
-      <p class="meta">Diterima: <%= item.metric.received_at %></p>
     <% } else { %>
-      <p class="meta">Belum ada data metrik masuk dari client ini.</p>
-    <% } %>
-
-    <h2>RAM &amp; CPU Load</h2>
-    <% if (item.metricHistory.length === 0) { %>
-      <p class="meta">Belum ada data.</p>
-    <% } else { %>
-      <div style="background:#161922; border-radius:6px; padding:1rem;">
-        <canvas id="resource-chart" height="80"></canvas>
+      <div class="empty-state">
+        <span class="big">No metrics yet</span>
+        Belum ada data masuk dari client ini.
       </div>
     <% } %>
 
-    <h2>Docker (docker ps -a)</h2>
-    <p>
-      <button type="button" onclick="refreshCommand('docker_ps', 'docker-output')">Refresh Docker</button>
-    </p>
-    <div id="docker-output">
-      <% if (item.dockerResult && item.dockerResult.output) { %>
-        <p class="meta">Diambil: <%= item.dockerResult.requested_at %></p>
-        <pre><%= item.dockerResult.output %></pre>
-      <% } else if (item.dockerResult && item.dockerResult.error_message) { %>
-        <p class="error"><%= item.dockerResult.error_message %></p>
-      <% } else { %>
-        <p class="meta">Belum ada data. Klik "Refresh Docker" untuk mengambil sekarang.</p>
-      <% } %>
-    </div>
-
-    <h2>Port listen (ss -tulnp)</h2>
-    <p>
-      <button type="button" onclick="refreshCommand('port_listen', 'port-output')">Refresh Port</button>
-    </p>
-    <div id="port-output">
-      <% if (item.portResult && item.portResult.output) { %>
-        <p class="meta">Diambil: <%= item.portResult.requested_at %></p>
-        <pre><%= item.portResult.output %></pre>
-      <% } else if (item.portResult && item.portResult.error_message) { %>
-        <p class="error"><%= item.portResult.error_message %></p>
-      <% } else { %>
-        <p class="meta">Belum ada data. Klik "Refresh Port" untuk mengambil sekarang.</p>
-      <% } %>
-    </div>
-
-    <h2>Riwayat status</h2>
-    <% if (item.history.length === 0) { %>
-      <p class="meta">Belum ada perubahan status tercatat.</p>
+    <h2>Memory &amp; CPU load</h2>
+    <% if (item.metricHistory.length === 0) { %>
+      <div class="empty-state">
+        <span class="big">No history</span>
+        Grafik akan terisi setelah beberapa siklus pengiriman metrik.
+      </div>
     <% } else { %>
-      <table>
-        <thead>
-          <tr><th>Waktu</th><th>Dari</th><th>Ke</th></tr>
-        </thead>
-        <tbody>
-          <% for (const h of item.history) { %>
-            <tr>
-              <td><%= h.changed_at %></td>
-              <td><%= h.from_status || '-' %></td>
-              <td><span class="badge badge-<%= h.to_status %>"><%= h.to_status.toUpperCase() %></span></td>
-            </tr>
-          <% } %>
-        </tbody>
-      </table>
+      <div class="chart-shell">
+        <canvas id="resource-chart" height="78"></canvas>
+      </div>
+    <% } %>
+
+    <h2>Docker containers</h2>
+    <div class="panel panel-pad">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:0.85rem; flex-wrap:wrap;">
+        <span class="meta">docker ps -a &middot; diambil on-demand dari agent</span>
+        <button type="button" class="btn-sm" onclick="refreshCommand('docker_ps', 'docker-output')">Refresh</button>
+      </div>
+      <div id="docker-output">
+        <% if (item.dockerResult && item.dockerResult.output) { %>
+          <div class="meta" style="margin-bottom:0.5rem;">Diambil: <%= item.dockerResult.requested_at %></div>
+          <pre><%= item.dockerResult.output %></pre>
+        <% } else if (item.dockerResult && item.dockerResult.error_message) { %>
+          <div class="error" style="margin:0;"><%= item.dockerResult.error_message %></div>
+        <% } else { %>
+          <div class="meta">Belum ada data. Klik <strong>Refresh</strong> untuk mengambil sekarang.</div>
+        <% } %>
+      </div>
+    </div>
+
+    <h2>Listening ports</h2>
+    <div class="panel panel-pad">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:0.85rem; flex-wrap:wrap;">
+        <span class="meta">ss -tulnp &middot; diambil on-demand dari agent</span>
+        <button type="button" class="btn-sm" onclick="refreshCommand('port_listen', 'port-output')">Refresh</button>
+      </div>
+      <div id="port-output">
+        <% if (item.portResult && item.portResult.output) { %>
+          <div class="meta" style="margin-bottom:0.5rem;">Diambil: <%= item.portResult.requested_at %></div>
+          <pre><%= item.portResult.output %></pre>
+        <% } else if (item.portResult && item.portResult.error_message) { %>
+          <div class="error" style="margin:0;"><%= item.portResult.error_message %></div>
+        <% } else { %>
+          <div class="meta">Belum ada data. Klik <strong>Refresh</strong> untuk mengambil sekarang.</div>
+        <% } %>
+      </div>
+    </div>
+
+    <h2>Status history</h2>
+    <% if (item.history.length === 0) { %>
+      <div class="empty-state">
+        <span class="big">No changes recorded</span>
+        Perubahan status akan tercatat di sini.
+      </div>
+    <% } else { %>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr><th style="width:210px;">Waktu</th><th style="width:130px;">Dari</th><th>Ke</th></tr>
+          </thead>
+          <tbody>
+            <% for (const h of item.history) { %>
+              <tr>
+                <td class="meta num"><%= h.changed_at %></td>
+                <td class="meta"><%= h.from_status || '—' %></td>
+                <td><span class="badge badge-<%= h.to_status %>"><%= h.to_status.toUpperCase() %></span></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
     <% } %>
   </main>
 
   <script>
     async function refreshCommand(command, outputElId) {
-      const el = document.getElementById(outputElId);
-      el.innerHTML = '<p class="meta">Menunggu balasan dari item...</p>';
+      var el = document.getElementById(outputElId);
+      el.innerHTML = '<div class="meta">&#10227; Menunggu balasan dari agent&hellip;</div>';
       try {
-        const res = await fetch('/clients/<%= item.id %>/command/' + command, { method: 'POST' });
-        const data = await res.json();
+        var res = await fetch('/clients/<%= item.id %>/command/' + command, { method: 'POST' });
+        var data = await res.json();
         if (!res.ok) {
-          el.innerHTML = '<p class="error">' + escapeHtml(data.error || 'Gagal.') + '</p>';
+          el.innerHTML = '<div class="error" style="margin:0;">' + escapeHtml(data.error || 'Gagal.') + '</div>';
           return;
         }
         if (data.errorMessage) {
-          el.innerHTML = '<p class="error">' + escapeHtml(data.errorMessage) + '</p>';
+          el.innerHTML = '<div class="error" style="margin:0;">' + escapeHtml(data.errorMessage) + '</div>';
         } else {
           el.innerHTML = '<pre>' + escapeHtml(data.output || '') + '</pre>';
         }
       } catch (err) {
-        el.innerHTML = '<p class="error">' + escapeHtml(err.message) + '</p>';
+        el.innerHTML = '<div class="error" style="margin:0;">' + escapeHtml(err.message) + '</div>';
       }
     }
 
     function escapeHtml(str) {
-      const div = document.createElement('div');
+      var div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
     }
@@ -144,72 +159,107 @@
   <% if (item.metricHistory.length > 0) { %>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
-      const resourceData = <%- JSON.stringify(item.metricHistory) %>;
+      (function () {
+        var resourceData = <%- JSON.stringify(item.metricHistory) %>;
+        var labels = resourceData.map(function (d) { return d.received_at; });
+        var memPercent = resourceData.map(function (d) {
+          return d.mem_total_mb ? Math.round((d.mem_used_mb / d.mem_total_mb) * 100) : null;
+        });
+        var load = resourceData.map(function (d) { return d.load_1m; });
 
-      const resLabels = resourceData.map((d) => d.received_at);
-      const memPercentData = resourceData.map((d) =>
-        d.mem_total_mb ? Math.round((d.mem_used_mb / d.mem_total_mb) * 100) : null
-      );
-      const loadData = resourceData.map((d) => d.load_1m);
+        var gridColor = 'rgba(0, 255, 133, 0.08)';
+        var borderColor = 'rgba(0, 255, 133, 0.16)';
+        var tickColor = '#6c8a7b';
+        var monoFont = { family: 'JetBrains Mono, monospace', size: 10 };
 
-      new Chart(document.getElementById('resource-chart'), {
-        type: 'line',
-        data: {
-          labels: resLabels,
-          datasets: [
-            {
-              label: 'RAM (%)',
-              data: memPercentData,
-              borderColor: '#7dd3fc',
-              backgroundColor: 'rgba(125, 211, 252, 0.1)',
-              yAxisID: 'yPercent',
-              tension: 0.25,
-              pointRadius: 2,
-              fill: true,
+        var ctx = document.getElementById('resource-chart').getContext('2d');
+        var memFill = ctx.createLinearGradient(0, 0, 0, 260);
+        memFill.addColorStop(0, 'rgba(0, 255, 133, 0.22)');
+        memFill.addColorStop(1, 'rgba(0, 255, 133, 0)');
+
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'MEMORY %',
+                data: memPercent,
+                borderColor: '#00ff85',
+                backgroundColor: memFill,
+                borderWidth: 2,
+                yAxisID: 'yPercent',
+                tension: 0.32,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: '#00ff85',
+                pointHoverBorderColor: '#02150c',
+                fill: true,
+              },
+              {
+                label: 'CPU LOAD 1M',
+                data: load,
+                borderColor: '#ffc93c',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [4, 3],
+                yAxisID: 'yLoad',
+                tension: 0.32,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: '#ffc93c',
+                pointHoverBorderColor: '#02150c',
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              x: {
+                ticks: { color: tickColor, maxTicksLimit: 7, font: monoFont },
+                grid: { color: gridColor },
+                border: { color: borderColor },
+              },
+              yPercent: {
+                type: 'linear', position: 'left', min: 0, max: 100,
+                ticks: { color: tickColor, font: monoFont, callback: function (v) { return v + '%'; } },
+                grid: { color: gridColor },
+                border: { color: borderColor },
+              },
+              yLoad: {
+                type: 'linear', position: 'right', beginAtZero: true,
+                ticks: { color: '#b08a1f', font: monoFont },
+                grid: { drawOnChartArea: false },
+                border: { color: borderColor },
+              },
             },
-            {
-              label: 'CPU load (1m)',
-              data: loadData,
-              borderColor: '#facc15',
-              backgroundColor: 'rgba(250, 204, 21, 0.1)',
-              yAxisID: 'yLoad',
-              tension: 0.25,
-              pointRadius: 2,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          interaction: { mode: 'index', intersect: false },
-          scales: {
-            x: {
-              ticks: { color: '#9aa0ac', maxTicksLimit: 8 },
-              grid: { color: '#262a36' },
-            },
-            yPercent: {
-              type: 'linear',
-              position: 'left',
-              min: 0,
-              max: 100,
-              ticks: { color: '#9aa0ac' },
-              grid: { color: '#262a36' },
-              title: { display: true, text: 'RAM %', color: '#9aa0ac' },
-            },
-            yLoad: {
-              type: 'linear',
-              position: 'right',
-              beginAtZero: true,
-              ticks: { color: '#9aa0ac' },
-              grid: { drawOnChartArea: false },
-              title: { display: true, text: 'load', color: '#9aa0ac' },
+            plugins: {
+              legend: {
+                labels: {
+                  color: '#dff7e9',
+                  boxWidth: 12,
+                  boxHeight: 2,
+                  usePointStyle: false,
+                  font: { family: 'JetBrains Mono, monospace', size: 10 },
+                },
+              },
+              tooltip: {
+                backgroundColor: '#060f0b',
+                borderColor: 'rgba(0,255,133,.34)',
+                borderWidth: 1,
+                titleColor: '#00ff85',
+                bodyColor: '#dff7e9',
+                titleFont: { family: 'JetBrains Mono, monospace', size: 11 },
+                bodyFont: { family: 'JetBrains Mono, monospace', size: 11 },
+                padding: 10,
+                displayColors: true,
+                cornerRadius: 4,
+              },
             },
           },
-          plugins: {
-            legend: { labels: { color: '#e6e6e6' } },
-          },
-        },
-      });
+        });
+      })();
     </script>
   <% } %>
-</body>
-</html>
+<%- include('partials/layout-foot') %>

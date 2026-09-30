@@ -1,55 +1,71 @@
 <%- include('partials/layout-head', { title: 'Master Group - Oops' }) %>
-  <header>
-    <a href="/">Oops</a>
-  </header>
+<%- include('partials/navbar', { username: username, active: 'master' }) %>
   <main>
-    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
-    <h1>Master Group</h1>
+    <div class="page-head">
+      <div>
+        <h1>Master &middot; Group</h1>
+        <div class="page-sub">Kelompokkan client yang terhubung ke dalam grup.</div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost" href="/">&larr; Dashboard</a>
+      </div>
+    </div>
 
     <% if (error) { %>
-      <p class="error"><%= error %></p>
+      <div class="error"><%= error %></div>
     <% } %>
 
-    <form method="post" action="/groups" style="display:flex; gap:0.5rem; align-items:flex-end;">
-      <p style="flex:1; margin:0;">
-        <label>Nama grup baru</label>
-        <input type="text" name="name" required />
-      </p>
-      <p style="margin:0;">
-        <button type="submit">Tambah grup</button>
-      </p>
-    </form>
+    <div class="panel panel-pad" style="margin-bottom:1.1rem;">
+      <form method="post" action="/groups" class="form-row">
+        <div class="field">
+          <label for="new-group">Nama grup baru</label>
+          <input type="text" id="new-group" name="name" required placeholder="mis. Kantor Pusat" />
+        </div>
+        <button type="submit" class="btn-primary">+ Add group</button>
+      </form>
+    </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Nama grup</th>
-          <th>Jumlah client</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <% if (groups.length === 0) { %>
-          <tr><td colspan="3" class="meta">Belum ada grup.</td></tr>
-        <% } %>
-        <% for (const g of groups) { %>
+    <div class="panel">
+      <table>
+        <thead>
           <tr>
-            <td>
-              <form method="post" action="/groups/<%= g.id %>/edit" style="display:flex; gap:0.5rem;">
-                <input type="text" name="name" value="<%= g.name %>" style="width:auto;" />
-                <button type="submit">Simpan</button>
-              </form>
-            </td>
-            <td class="meta"><%= g.memberCount %></td>
-            <td>
-              <form method="post" action="/groups/<%= g.id %>/delete" onsubmit="return confirm('Hapus grup ini? Client di dalamnya akan jadi \'Belum dikelompokkan\', bukan ikut terhapus.');">
-                <button type="submit" style="background:#7f1d1d;">Hapus</button>
-              </form>
-            </td>
+            <th>Nama grup</th>
+            <th style="width:120px;">Clients</th>
+            <th style="width:110px; text-align:right;">Actions</th>
           </tr>
-        <% } %>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <% if (groups.length === 0) { %>
+            <tr>
+              <td colspan="3">
+                <div class="empty-state" style="border:0; padding:1.8rem 1rem; background:transparent;">
+                  <span class="big">No groups yet</span>
+                  Buat grup pertama lewat form di atas.
+                </div>
+              </td>
+            </tr>
+          <% } %>
+          <% for (const g of groups) { %>
+            <tr>
+              <td>
+                <form method="post" action="/groups/<%= g.id %>/edit" style="display:flex; gap:0.5rem; align-items:center; max-width:420px;">
+                  <input type="text" name="name" value="<%= g.name %>" required />
+                  <button type="submit" class="btn-sm btn-ghost">Save</button>
+                </form>
+              </td>
+              <td class="meta num"><%= g.memberCount %></td>
+              <td>
+                <div class="row-actions">
+                  <form method="post" action="/groups/<%= g.id %>/delete"
+                        onsubmit="return confirm('Hapus grup &quot;<%= g.name %>&quot;? Client di dalamnya TIDAK ikut terhapus — mereka jadi Belum dikelompokkan.');">
+                    <button type="submit" class="btn-sm btn-danger">Remove</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
   </main>
-</body>
-</html>
+<%- include('partials/layout-foot') %>

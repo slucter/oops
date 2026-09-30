@@ -2,10 +2,4 @@
   // locals: percent (number|null), label (string, opsional)
   const p = typeof percent === 'number' ? percent : null;
   const barClass = p == null ? '' : p >= 90 ? 'usage-crit' : p >= 75 ? 'usage-warn' : 'usage-ok';
-%>
-<% if (p == null) { %>
-  <span class="meta">-</span>
-<% } else { %>
-  <span class="usage-bar"><span class="usage-bar-fill <%= barClass %>" style="width: <%= Math.min(p, 100) %>%;"></span></span>
-  <span class="usage-label"><%= p %>%<% if (typeof label !== 'undefined' && label) { %> <%= label %><% } %></span>
-<% } %>
+%><% if (p == null) { %><span class="meta">—</span><% } else { %><span class="usage-cell"><span class="usage-bar"><span class="usage-bar-fill <%= barClass %>" style="width: <%= Math.min(p, 100) %>%;"></span></span><span class="usage-label"><%= p %>%<% if (typeof label !== 'undefined' && label) { %> <%= label %><% } %></span></span><% } %>

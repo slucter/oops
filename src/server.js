@@ -35,6 +35,13 @@ app.use(
   })
 );
 
+// Username selalu tersedia di semua view (dipakai navbar), tanpa perlu
+// diteruskan manual di tiap res.render().
+app.use((req, res, next) => {
+  res.locals.username = req.session ? req.session.username : null;
+  next();
+});
+
 // install.sh + file agent publik (tanpa login) — dipanggil lewat curl dari server client.
 app.use(installRoutes);
 app.use('/agent-files', express.static(path.join(__dirname, '..', 'agent'), { dotfiles: 'ignore', index: false }));

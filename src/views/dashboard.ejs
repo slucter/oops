@@ -1,73 +1,82 @@
 <%- include('partials/layout-head', { title: 'Dashboard - Oops' }) %>
-  <header>
-    <a href="/">Oops</a>
-    <div>
-      <a href="/groups" class="server-link" style="margin-right: 1rem;">Master Group</a>
-      <span class="meta"><%= username %></span>
-      <form class="inline" method="post" action="/logout">
-        <button type="submit">Keluar</button>
-      </form>
-    </div>
-  </header>
+<%- include('partials/navbar', { username: username, active: 'dashboard' }) %>
   <main>
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h1>Status Client</h1>
+    <div class="page-head">
       <div>
-        <span class="meta" id="refresh-indicator"></span>
-        <button type="button" onclick="location.reload()">Refresh</button>
-        <a class="server-link" href="/clients/new"><button type="button">+ Tambah Client</button></a>
+        <h1>Connected clients</h1>
+        <div class="page-sub" id="refresh-indicator">&nbsp;</div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn-ghost" onclick="location.reload()">Refresh</button>
+        <a class="btn btn-primary" href="/clients/new">+ Add client</a>
       </div>
     </div>
 
     <% const groupNames = Object.keys(grouped); %>
     <% if (groupNames.length === 0) { %>
-      <p class="meta">Belum ada client terdaftar. <a class="server-link" href="/clients/new">Tambah client pertama</a>.</p>
+      <div class="empty-state">
+        <span class="big">No clients registered</span>
+        Tambahkan client pertama untuk mulai memantau.<br />
+        <a class="server-link" href="/clients/new">+ Add client</a>
+      </div>
     <% } %>
 
     <% for (const groupName of groupNames) { %>
-      <div class="group-label"><%= groupName %></div>
-      <table>
-        <thead>
-          <tr>
-            <th>Client</th>
-            <th>Hostname</th>
-            <th>Status</th>
-            <th>RAM</th>
-            <th>Disk</th>
-            <th>Terakhir terlihat</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% for (const c of grouped[groupName]) { %>
+      <div class="group-label">
+        <%= groupName %>
+        <span class="count"><%= grouped[groupName].length %></span>
+      </div>
+      <div class="panel">
+        <table>
+          <thead>
             <tr>
-              <td><a class="server-link" href="/client/<%= c.id %>"><%= c.name %></a></td>
-              <td class="meta"><%= c.hostname || '-' %></td>
-              <td><span class="badge badge-<%= c.status %>"><%= c.status.toUpperCase() %></span></td>
-              <td><%- include('partials/usage-bar', { percent: c.metric ? c.metric.memPercent : null }) %></td>
-              <td><%- include('partials/usage-bar', { percent: c.metric ? c.metric.diskPercent : null }) %></td>
-              <td class="meta"><%= c.lastSeenAt || 'belum pernah connect' %></td>
-              <td><a class="server-link" href="/clients/<%= c.id %>/edit">edit</a></td>
+              <th>Client</th>
+              <th>Hostname</th>
+              <th>Status</th>
+              <th>RAM</th>
+              <th>Disk</th>
+              <th>Last seen</th>
+              <th style="text-align:right;">Actions</th>
             </tr>
-          <% } %>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            <% for (const c of grouped[groupName]) { %>
+              <tr>
+                <td class="cell-name"><a class="server-link" href="/client/<%= c.id %>"><%= c.name %></a></td>
+                <td class="meta"><%= c.hostname || '—' %></td>
+                <td><span class="badge badge-<%= c.status %>"><%= c.status.toUpperCase() %></span></td>
+                <td class="num"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.memPercent : null }) %></td>
+                <td class="num"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.diskPercent : null }) %></td>
+                <td class="meta num"><%= c.lastSeenAt || 'never' %></td>
+                <td>
+                  <div class="row-actions">
+                    <a class="btn btn-sm btn-ghost" href="/client/<%= c.id %>">Detail</a>
+                    <a class="btn btn-sm btn-ghost" href="/clients/<%= c.id %>/edit">Edit</a>
+                    <form method="post" action="/clients/<%= c.id %>/delete"
+                          onsubmit="return confirm('Hapus client &quot;<%= c.name %>&quot;? Semua data metrik dan riwayatnya ikut terhapus permanen.');">
+                      <button type="submit" class="btn-sm btn-danger">Remove</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
     <% } %>
   </main>
-  <script>
-    const REFRESH_MS = 30000;
-    let secondsLeft = REFRESH_MS / 1000;
-    const indicator = document.getElementById('refresh-indicator');
 
-    function tick() {
-      secondsLeft -= 1;
-      if (secondsLeft <= 0) {
-        location.reload();
-        return;
-      }
-      indicator.textContent = 'refresh otomatis dalam ' + secondsLeft + 's';
-    }
-    setInterval(tick, 1000);
+  <script>
+    (function () {
+      var REFRESH_MS = 30000;
+      var secondsLeft = REFRESH_MS / 1000;
+      var indicator = document.getElementById('refresh-indicator');
+
+      setInterval(function () {
+        secondsLeft -= 1;
+        if (secondsLeft <= 0) { location.reload(); return; }
+        indicator.textContent = 'auto refresh in ' + secondsLeft + 's';
+      }, 1000);
+    })();
   </script>
-</body>
-</html>
+<%- include('partials/layout-foot') %>

@@ -1,0 +1,31 @@
+  <script>
+    // Dropdown navbar: buka/tutup saat toggle diklik, tutup saat klik di luar
+    // atau tekan Escape. Satu dropdown terbuka pada satu waktu.
+    (function () {
+      var dropdowns = Array.prototype.slice.call(document.querySelectorAll('[data-dropdown]'));
+
+      function closeAll(except) {
+        dropdowns.forEach(function (d) {
+          if (d !== except) d.classList.remove('open');
+        });
+      }
+
+      dropdowns.forEach(function (d) {
+        var toggle = d.querySelector('[data-dropdown-toggle]');
+        if (!toggle) return;
+        toggle.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var willOpen = !d.classList.contains('open');
+          closeAll(d);
+          d.classList.toggle('open', willOpen);
+        });
+      });
+
+      document.addEventListener('click', function () { closeAll(null); });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeAll(null);
+      });
+    })();
+  </script>
+</body>
+</html>

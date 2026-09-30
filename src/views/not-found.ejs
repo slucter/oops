@@ -1,8 +1,12 @@
-<%- include('partials/layout-head', { title: 'Tidak ditemukan - Oops' }) %>
+<%- include('partials/layout-head', { title: '404 - Oops' }) %>
+<%- include('partials/navbar', { username: username }) %>
   <main>
-    <h1>Tidak ditemukan</h1>
-    <p>Tidak ada data dengan id "<%= id %>".</p>
-    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
+    <div class="empty-state" style="margin-top:3rem;">
+      <span class="big">404 &middot; Not found</span>
+      Tidak ada data dengan id "<%= id %>".
+      <div style="margin-top:1.2rem;">
+        <a class="btn btn-ghost" href="/">&larr; Kembali ke dashboard</a>
+      </div>
+    </div>
   </main>
-</body>
-</html>
+<%- include('partials/layout-foot') %>

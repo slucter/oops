@@ -1,22 +1,32 @@
-<%- include('partials/layout-head', { title: 'Login - Oops' }) %>
-  <main>
-    <div class="login-box">
-      <h1>Oops</h1>
+<%- include('partials/layout-head', { title: 'Sign in - Oops' }) %>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="logo-mark">&gt;_</div>
+        <div class="logo">OOPS</div>
+        <div class="expand">
+          <b>O</b>nline <b>O</b>perations &amp;<br />
+          <b>P</b>erformance <b>S</b>entinel
+        </div>
+      </div>
+
       <% if (error) { %>
-        <p class="error"><%= error %></p>
+        <div class="error"><%= error %></div>
       <% } %>
+
       <form method="post" action="/login">
-        <p>
-          <label>Username</label>
-          <input type="text" name="username" required autofocus />
-        </p>
-        <p>
-          <label>Password</label>
-          <input type="password" name="password" required />
-        </p>
-        <button type="submit">Masuk</button>
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" required autofocus autocomplete="username" placeholder="operator" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••" />
+        </div>
+        <button type="submit" class="btn-primary btn-block">Authenticate</button>
       </form>
+
+      <div class="auth-foot">Restricted access &middot; authorized operators only</div>
     </div>
-  </main>
-</body>
-</html>
+  </div>
+<%- include('partials/layout-foot') %>
