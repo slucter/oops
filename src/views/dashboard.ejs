@@ -33,6 +33,7 @@
               <th>Client</th>
               <th>Hostname</th>
               <th>Status</th>
+              <th>Latency</th>
               <th>RAM</th>
               <th>Disk</th>
               <th>Last seen</th>
@@ -45,6 +46,7 @@
                 <td class="cell-name"><a class="server-link" href="/client/<%= c.id %>"><%= c.name %></a></td>
                 <td class="meta"><%= c.hostname || '—' %></td>
                 <td><span class="badge badge-<%= c.status %>"><%= c.status.toUpperCase() %></span></td>
+                <td class="num"><%- include('partials/latency', { ms: c.status === 'up' ? c.lastLatencyMs : null }) %></td>
                 <td class="num"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.memPercent : null }) %></td>
                 <td class="num"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.diskPercent : null }) %></td>
                 <td class="meta num"><%= c.lastSeenAt || 'never' %></td>

@@ -35,6 +35,7 @@ function mapRow(row) {
     status: row.status,
     hostname: row.hostname,
     lastSeenAt: row.last_seen_at,
+    lastLatencyMs: row.last_latency_ms,
     createdAt: row.created_at,
   };
 }

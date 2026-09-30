@@ -544,6 +544,20 @@
     .usage-crit { background: var(--danger); box-shadow: 0 0 9px rgba(255,85,102,.5); }
     .usage-label { font-size: 0.7rem; color: var(--text-dim); margin-left: 0.45rem; vertical-align: middle; font-variant-numeric: tabular-nums; }
 
+    /* ================= LATENCY ================= */
+    .latency {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.15rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+    .latency .unit { font-size: 0.64rem; font-weight: 400; opacity: .75; }
+    .lat-good { color: var(--accent); }
+    .lat-ok { color: var(--warn); }
+    .lat-bad { color: var(--danger); }
+
     /* ================= STAT CARD ================= */
     .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(186px, 1fr)); gap: 0.85rem; margin: 1rem 0; }
     .stat-card {

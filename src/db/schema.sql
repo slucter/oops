@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS clients (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'up', 'down')),
   hostname TEXT,
   last_seen_at TEXT,
+  last_latency_ms INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_clients_token ON clients (token);
@@ -35,7 +36,8 @@ CREATE TABLE IF NOT EXISTS client_metrics (
   load_1m REAL,
   load_5m REAL,
   load_15m REAL,
-  uptime_seconds INTEGER
+  uptime_seconds INTEGER,
+  latency_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_client_metrics_client ON client_metrics (client_id, received_at DESC);
 

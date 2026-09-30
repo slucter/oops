@@ -3,7 +3,7 @@ const clientStore = require('./clientStore');
 
 const getLatestMetric = db.prepare(`
   SELECT received_at, mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
-         load_1m, load_5m, load_15m, uptime_seconds
+         load_1m, load_5m, load_15m, uptime_seconds, latency_ms
   FROM client_metrics
   WHERE client_id = ?
   ORDER BY received_at DESC
@@ -13,11 +13,20 @@ const getLatestMetric = db.prepare(`
 const METRIC_POINTS = 100;
 
 const getMetricHistoryDesc = db.prepare(`
-  SELECT received_at, mem_total_mb, mem_used_mb, load_1m
+  SELECT received_at, mem_total_mb, mem_used_mb, load_1m, latency_ms
   FROM client_metrics
   WHERE client_id = ?
   ORDER BY received_at DESC
   LIMIT ?
+`);
+
+const getLatencyStats = db.prepare(`
+  SELECT AVG(latency_ms) AS avg_ms, MIN(latency_ms) AS min_ms, MAX(latency_ms) AS max_ms
+  FROM (
+    SELECT latency_ms FROM client_metrics
+    WHERE client_id = ? AND latency_ms IS NOT NULL
+    ORDER BY received_at DESC LIMIT ?
+  )
 `);
 
 const getHistory = db.prepare(`
@@ -61,10 +70,17 @@ function getClientDetail(clientId) {
   const client = clientStore.getClientById(id);
   if (!client) return null;
 
+  const stats = getLatencyStats.get(id, METRIC_POINTS) || {};
+
   return {
     ...client,
     metric: withMetricPercent(getLatestMetric.get(id)),
     metricHistory: getMetricHistoryDesc.all(id, METRIC_POINTS).reverse(),
+    latencyStats: stats.avg_ms == null ? null : {
+      avg: Math.round(stats.avg_ms),
+      min: stats.min_ms,
+      max: stats.max_ms,
+    },
     history: getHistory.all(id),
     dockerResult: getCommandResult.get(id, 'docker_ps') || null,
     portResult: getCommandResult.get(id, 'port_listen') || null,

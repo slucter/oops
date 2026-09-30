@@ -3,16 +3,18 @@ const db = require('../db');
 const insertMetric = db.prepare(`
   INSERT INTO client_metrics (
     client_id, mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
-    load_1m, load_5m, load_15m, uptime_seconds
+    load_1m, load_5m, load_15m, uptime_seconds, latency_ms
   )
   VALUES (
     @clientId, @memTotalMb, @memUsedMb, @diskTotalGb, @diskUsedGb,
-    @load1m, @load5m, @load15m, @uptimeSeconds
+    @load1m, @load5m, @load15m, @uptimeSeconds, @latencyMs
   )
 `);
 
 const updateClientSeen = db.prepare(`
-  UPDATE clients SET status = 'up', hostname = @hostname, last_seen_at = datetime('now')
+  UPDATE clients
+  SET status = 'up', hostname = @hostname, last_seen_at = datetime('now'),
+      last_latency_ms = @latencyMs
   WHERE id = @id
 `);
 
@@ -44,8 +46,9 @@ function recordStatusChange(clientId, newStatus) {
  * baru pulih dari DOWN).
  */
 function recordMetric(clientId, payload) {
+  const latencyMs = payload.latencyMs != null ? payload.latencyMs : null;
   recordStatusChange(clientId, 'up');
-  updateClientSeen.run({ id: clientId, hostname: payload.hostname || null });
+  updateClientSeen.run({ id: clientId, hostname: payload.hostname || null, latencyMs });
   insertMetric.run({
     clientId,
     memTotalMb: payload.memTotalMb,
@@ -56,6 +59,7 @@ function recordMetric(clientId, payload) {
     load5m: payload.load5m,
     load15m: payload.load15m,
     uptimeSeconds: payload.uptimeSeconds,
+    latencyMs,
   });
 }
 

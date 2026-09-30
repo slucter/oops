@@ -1,0 +1,5 @@
+<%
+  // locals: ms (number|null) — RTT ping/pong WebSocket dalam milidetik.
+  const v = typeof ms === 'number' ? ms : null;
+  const cls = v == null ? '' : v < 100 ? 'lat-good' : v < 300 ? 'lat-ok' : 'lat-bad';
+%><% if (v == null) { %><span class="meta">—</span><% } else { %><span class="latency <%= cls %>"><%= v %><span class="unit">ms</span></span><% } %>

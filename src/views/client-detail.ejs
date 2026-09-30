@@ -42,6 +42,17 @@
           </div>
         </div>
         <div class="stat-card">
+          <div class="label">Latency</div>
+          <div class="value"><%- include('partials/latency', { ms: item.status === 'up' ? item.lastLatencyMs : null }) %></div>
+          <div class="sub">
+            <% if (item.latencyStats) { %>
+              avg <%= item.latencyStats.avg %>ms &middot; <%= item.latencyStats.min %>–<%= item.latencyStats.max %>ms
+            <% } else { %>
+              belum ada sampel
+            <% } %>
+          </div>
+        </div>
+        <div class="stat-card">
           <div class="label">Uptime</div>
           <div class="value" style="font-size:1rem;"><%= formatUptime(item.metric.uptime_seconds) %></div>
           <div class="sub">received <%= item.metric.received_at %></div>
@@ -63,6 +74,19 @@
     <% } else { %>
       <div class="chart-shell">
         <canvas id="resource-chart" height="78"></canvas>
+      </div>
+    <% } %>
+
+    <h2>Latency</h2>
+    <% const hasLatency = item.metricHistory.some(function (d) { return d.latency_ms != null; }); %>
+    <% if (!hasLatency) { %>
+      <div class="empty-state">
+        <span class="big">No latency samples</span>
+        Latency diukur lewat ping/pong WebSocket setiap 15 detik saat client terkoneksi.
+      </div>
+    <% } else { %>
+      <div class="chart-shell">
+        <canvas id="latency-chart" height="60"></canvas>
       </div>
     <% } %>
 
@@ -259,6 +283,73 @@
             },
           },
         });
+
+        // Grafik latency terpisah — skalanya (ms) jauh beda dari RAM %/load,
+        // jadi digabung ke chart di atas malah bikin dua-duanya sulit dibaca.
+        var latencyCanvas = document.getElementById('latency-chart');
+        if (latencyCanvas) {
+          var latCtx = latencyCanvas.getContext('2d');
+          var latFill = latCtx.createLinearGradient(0, 0, 0, 200);
+          latFill.addColorStop(0, 'rgba(77, 216, 255, 0.24)');
+          latFill.addColorStop(1, 'rgba(77, 216, 255, 0)');
+
+          new Chart(latCtx, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: 'LATENCY (MS)',
+                data: resourceData.map(function (d) { return d.latency_ms; }),
+                borderColor: '#4dd8ff',
+                backgroundColor: latFill,
+                borderWidth: 2,
+                tension: 0.32,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: '#4dd8ff',
+                pointHoverBorderColor: '#02150c',
+                fill: true,
+                spanGaps: true,
+              }],
+            },
+            options: {
+              responsive: true,
+              interaction: { mode: 'index', intersect: false },
+              scales: {
+                x: {
+                  ticks: { color: tickColor, maxTicksLimit: 7, font: monoFont },
+                  grid: { color: gridColor },
+                  border: { color: borderColor },
+                },
+                y: {
+                  beginAtZero: true,
+                  ticks: { color: '#3f93ad', font: monoFont, callback: function (v) { return v + 'ms'; } },
+                  grid: { color: gridColor },
+                  border: { color: borderColor },
+                },
+              },
+              plugins: {
+                legend: {
+                  labels: {
+                    color: '#dff7e9', boxWidth: 12, boxHeight: 2,
+                    font: { family: 'JetBrains Mono, monospace', size: 10 },
+                  },
+                },
+                tooltip: {
+                  backgroundColor: '#060f0b',
+                  borderColor: 'rgba(77,216,255,.4)',
+                  borderWidth: 1,
+                  titleColor: '#4dd8ff',
+                  bodyColor: '#dff7e9',
+                  titleFont: { family: 'JetBrains Mono, monospace', size: 11 },
+                  bodyFont: { family: 'JetBrains Mono, monospace', size: 11 },
+                  padding: 10,
+                  cornerRadius: 4,
+                },
+              },
+            },
+          });
+        }
       })();
     </script>
   <% } %>

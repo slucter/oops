@@ -8,11 +8,16 @@ const MAX_MESSAGE_BYTES = 8 * 1024;
 const STALE_THRESHOLD_SECONDS = Number(process.env.CLIENT_STALE_SECONDS || 90);
 const STALE_CHECK_INTERVAL_MS = 15000;
 const COMMAND_TIMEOUT_MS = 10000;
+const PING_INTERVAL_MS = Number(process.env.CLIENT_PING_INTERVAL_MS || 15000);
 
 // clientId -> WebSocket, hanya untuk client yang sedang terkoneksi.
 const activeConnections = new Map();
 // requestId -> { resolve, reject, timer }, permintaan command yang menunggu balasan.
 const pendingCommands = new Map();
+// clientId -> latency RTT terakhir (ms) dari ping/pong WebSocket. Hanya di
+// memori: nilainya ikut disimpan ke DB saat payload metrik berikutnya masuk,
+// supaya tidak bikin baris/tabel sendiri untuk angka yang berubah terus.
+const lastLatency = new Map();
 
 function attach(httpServer) {
   const wss = new WebSocketServer({ noServer: true });
@@ -48,6 +53,19 @@ function attach(httpServer) {
     activeConnections.set(client.id, ws);
     console.log(`[ws] client "${client.name}" (id=${client.id}) terkoneksi`);
 
+    // Ping/pong pakai frame bawaan protokol WebSocket (bukan pesan JSON
+    // sendiri): library `ws` di sisi agent otomatis membalas pong tanpa
+    // perlu kode tambahan, jadi RTT ini mengukur jalur jaringannya saja.
+    ws.on('pong', () => {
+      if (ws.pingSentAt) {
+        lastLatency.set(client.id, Date.now() - ws.pingSentAt);
+        ws.pingSentAt = null;
+      }
+    });
+
+    sendPing(ws);
+    const pingTimer = setInterval(() => sendPing(ws), PING_INTERVAL_MS);
+
     ws.on('message', (raw) => {
       if (raw.length > MAX_MESSAGE_BYTES) {
         ws.close(1009, 'payload too large');
@@ -60,7 +78,9 @@ function attach(httpServer) {
       // Tidak langsung tandai DOWN di sini — disconnect tidak selalu
       // sinyal jelas (bisa reconnect cepat). markStaleClientsDown() yang
       // memutuskan DOWN lewat timeout last_seen_at.
+      clearInterval(pingTimer);
       activeConnections.delete(client.id);
+      lastLatency.delete(client.id);
       console.log(`[ws] client "${client.name}" (id=${client.id}) terputus`);
     });
 
@@ -77,6 +97,16 @@ function attach(httpServer) {
   return wss;
 }
 
+function sendPing(ws) {
+  if (ws.readyState !== ws.OPEN) return;
+  ws.pingSentAt = Date.now();
+  try {
+    ws.ping();
+  } catch {
+    ws.pingSentAt = null;
+  }
+}
+
 function handleMessage(clientId, raw) {
   let msg;
   try {
@@ -91,7 +121,8 @@ function handleMessage(clientId, raw) {
       console.warn(`[ws] payload metric invalid dari client id=${clientId}: ${result.reason}`);
       return;
     }
-    clientDataService.recordMetric(clientId, result.data);
+    const latencyMs = lastLatency.has(clientId) ? lastLatency.get(clientId) : null;
+    clientDataService.recordMetric(clientId, { ...result.data, latencyMs });
     return;
   }
 
