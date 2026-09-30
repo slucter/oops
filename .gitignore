@@ -12,11 +12,11 @@ credentials.json
 secrets.json
 secrets.yaml
 secrets.yml
-servers.yaml
 data/*.sqlite
 data/*.sqlite-journal
 data/*.sqlite-wal
 data/*.sqlite-shm
+data/keys/
 
 # --- umum ---
 node_modules/

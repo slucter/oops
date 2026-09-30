@@ -1,7 +1,7 @@
 # Rencana: Dashboard Monitoring Server (sxops)
 
 Dibuat: 2026-09-30
-Status: disetujui 2026-09-30
+Status: disetujui 2026-09-30 (revisi 2026-09-30: registry server pindah dari YAML ke DB+form web)
 
 ## Masalah
 
@@ -19,8 +19,11 @@ kecil dengan login.
 ## Lingkup
 
 Termasuk:
-- Registry server lewat file config (YAML), termasuk relasi jump host
-  (server internal menunjuk ke bastion mana).
+- Registry server disimpan di SQLite, dikelola lewat form web (tambah/edit/
+  hapus server, termasuk relasi jump host via dropdown).
+- Upload private key SSH lewat form (file disimpan di disk server
+  monitoring di luar direktori git, path-nya yang disimpan di DB — isi key
+  tidak pernah masuk ke kolom database).
 - Scheduler polling berkala (interval bisa diatur, default beberapa menit)
   yang untuk tiap server:
   - Cek UP/DOWN (coba buka koneksi SSH; kalau connect refused/timeout → DOWN).
@@ -41,12 +44,12 @@ Termasuk:
 - Penyimpanan hasil cek di SQLite.
 
 Tidak termasuk (sengaja):
-- UI untuk tambah/edit server dari web (tahap ini pakai file config manual).
 - Notifikasi otomatis (email/Telegram/Slack saat server down) — bisa jadi
   tahap lanjutan.
 - Real-time push (websocket) — cukup polling + refresh halaman.
-- Manajemen SSH key dari UI (key dikelola manual di server monitoring,
-  di luar app, di direktori yang di luar repo/tidak ter-commit).
+- Enkripsi private key at-rest di disk (file key disimpan apa adanya di
+  folder khusus dengan permission ketat, bukan dienkripsi — didokumentasikan
+  sebagai batasan, lihat Risiko).
 - Multi-tenant / role-based access granular — login tim kecil cukup satu
   level akses untuk versi pertama.
 - Eksekusi command bebas dari dashboard ke server (hanya command tetap:
@@ -63,17 +66,17 @@ Tidak termasuk (sengaja):
 | Database | SQLite (better-sqlite3) | Cukup untuk skala tim kecil, tanpa perlu setup DB server terpisah |
 | Scheduler | `node-cron` in-process | Sederhana, jalan dalam proses yang sama dengan web server |
 | Auth | session cookie + password hash (bcrypt), user disimpan di SQLite | Cukup untuk tim kecil, tidak perlu OAuth/SSO di versi awal |
-| Sumber daftar server | file `servers.yaml` di luar git (lewat `.env`/config path) | Simpel diedit manual, tidak menyimpan topologi sensitif di kode |
+| Sumber daftar server | tabel `servers` di SQLite, dikelola lewat form web | Bisa dikelola tanpa akses filesystem/redeploy; revisi dari rencana awal (YAML) atas permintaan pemilik projek |
+| Upload key | `multer`, simpan file ke `data/keys/<uuid>`, permission 600 | Isi private key tidak pernah lewat kolom teks database atau log |
 | Deployment | systemd service di VPS/server kantor, atau Docker container | Sesuai preferensi: jalan terus-menerus di satu mesin |
 | Prasyarat di server target | user SSH dengan NOPASSWD sudo khusus untuk `ss` (dan `docker` kalau perlu) | `sudo ss -tulnp` butuh privilege; dibatasi lewat `/etc/sudoers.d/` agar tidak full sudo |
 
 ## Model data
 
-**Config (`servers.yaml`, bukan DB):**
-- `server`: id, nama, group (kantor/nama-client), host, port, user, ssh_key_path,
-  via (id jump host, opsional), has_docker (bool)
-
 **SQLite:**
+- `servers`: id, name, group_name, host, port, user, ssh_key_path (path file
+  ter-upload, bukan isi key), via_server_id (FK ke servers.id, nullable),
+  has_docker (bool), created_at
 - `users`: id, username, password_hash, created_at
 - `check_results`: id, server_id, checked_at, status (up/down), latency_ms,
   error_message
@@ -97,6 +100,31 @@ server yang diakses SSH langsung (belum jump host), tampil di dashboard.
 Selesai kalau: server config berisi minimal 2 server nyata bisa dicek, status
 UP/DOWN muncul benar di dashboard setelah salah satu server dimatikan/dicabut
 aksesnya, dan halaman tidak bisa diakses tanpa login.
+**Status: selesai, di-commit `444931e`.**
+
+### Tahap 1b — Migrasi registry ke DB + form web · kecil-menengah
+Tujuan: server tidak lagi didaftarkan lewat `servers.yaml`, tapi lewat form
+di dashboard, tersimpan di SQLite. Ini revisi lingkup atas permintaan
+pemilik projek (semula direncanakan tetap YAML).
+- [ ] Migrasi skema: tabel `servers` (lihat Model data), drop ketergantungan
+      ke `serverConfig.js`/YAML di seluruh kode (`statusChecker`, scheduler,
+      dashboardData, sshClient — `via` sekarang FK bukan id string bebas)
+- [ ] Modul `serverStore.js` (ganti `serverConfig.js`): CRUD server ke SQLite,
+      validasi sama seperti sebelumnya (duplikat, via valid, no-cycle) tapi
+      dicek terhadap tabel, bukan file
+- [ ] Route + form tambah server: name, group, host, port, user, has_docker,
+      via (dropdown dari server yang sudah ada, exclude diri sendiri &
+      keturunannya supaya tidak siklus), upload private key (`multer`)
+- [ ] Route edit & hapus server (hapus juga hapus file key terkait, dan
+      tolak hapus kalau masih jadi `via` server lain — atau set null dengan
+      konfirmasi)
+- [ ] File key ter-upload disimpan di `data/keys/<uuid>`, permission 600,
+      folder ini di luar git (`.gitignore`)
+- [ ] Hapus `config/servers.yaml` & `servers.example.yaml` dari alur (tidak
+      dipakai lagi); update README
+Selesai kalau: server bisa ditambah/diedit/dihapus lewat browser tanpa
+sentuh file apa pun, termasuk upload key dan pilih jump host dari dropdown,
+dan scheduler tetap jalan mengecek server-server itu seperti sebelumnya.
 
 ### Tahap 2 — Jump host / ProxyJump · kecil-menengah
 Tujuan: server internal (contoh `user@10.10.10.10` di balik bastion) bisa
@@ -141,7 +169,9 @@ testing, dan dashboard ter-refresh sendiri tanpa reload manual.
 | Private key SSH tersimpan di mesin monitoring | Kalau mesin ini bobol, semua server ikut kebobol | Key disimpan di luar repo, permission file ketat (600), tidak pernah masuk DB/log/journal |
 | Jump host down membawa banyak server internal ikut "unknown" | Bisa disalahartikan semua server itu down padahal cuma jalur putus | Bedakan status "DOWN" vs "UNREACHABLE (jump host down)" di UI |
 | Command SSH lambat/hang ke server yang benar-benar mati | Scheduler bisa numpuk kalau tidak ada timeout | Set timeout koneksi SSH tegas (mis. 5-10 detik) per cek |
-| File `servers.yaml` berisi info topologi sensitif client | Bocor kalau ke-commit ke git | Pastikan masuk `.gitignore`, dicek lewat `/simpan-rahasia` |
+| Form tambah server (termasuk upload key) tidak terproteksi | Siapa pun yang bisa login bisa menambah akses ke server manapun; kalau route lupa di-`requireAuth`, siapa saja bisa upload key dan lihat topologi | Semua route CRUD server wajib lewat middleware `requireAuth` yang sudah ada; tidak ada endpoint form yang publik |
+| File key ter-upload tidak divalidasi | User (sengaja/tidak) upload file bukan private key, atau file terlalu besar | Batasi ukuran upload (mis. 64KB), validasi format dasar (header `-----BEGIN`) sebelum disimpan |
+| Private key tersimpan di `data/keys/` tanpa enkripsi | Sama seperti risiko key di disk sebelumnya, tapi sekarang lewat upload jadi lebih mudah tidak sengaja ke-commit kalau `.gitignore` kurang tepat | Folder `data/keys/` masuk `.gitignore`, permission file di-set 600 saat ditulis |
 
 ## Pertanyaan terbuka
 - Berapa interval polling yang pas (default akan saya set 2 menit, bisa diubah via `.env`) — beri tahu kalau ada angka spesifik yang diinginkan.

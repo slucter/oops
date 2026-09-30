@@ -1,11 +1,11 @@
 const cron = require('node-cron');
-const { loadServers } = require('../services/serverConfig');
+const { listServers } = require('../services/serverStore');
 const { checkServer, collectServerInfo } = require('../services/statusChecker');
 
 const INTERVAL_MINUTES = Number(process.env.CHECK_INTERVAL_MINUTES || 2);
 
 async function runOnce() {
-  const servers = loadServers();
+  const servers = listServers();
   for (const server of servers) {
     const result = await checkServer(server);
     if (result.status === 'up') {

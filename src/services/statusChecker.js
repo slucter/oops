@@ -1,6 +1,6 @@
 const db = require('../db');
 const { connect, execCommand } = require('./sshClient');
-const { getServerById } = require('./serverConfig');
+const { getServerById } = require('./serverStore');
 
 const insertCheckResult = db.prepare(`
   INSERT INTO check_results (server_id, status, latency_ms, error_message)

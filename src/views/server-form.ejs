@@ -1,0 +1,65 @@
+<%- include('partials/layout-head', { title: (server ? 'Edit' : 'Tambah') + ' Server - sxops' }) %>
+  <header>
+    <a href="/">sxops</a>
+  </header>
+  <main>
+    <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
+    <h1><%= server ? 'Edit Server: ' + server.name : 'Tambah Server' %></h1>
+
+    <% if (error) { %>
+      <p class="error"><%= error %></p>
+    <% } %>
+
+    <form method="post" action="<%= server ? '/servers/' + server.id + '/edit' : '/servers' %>" enctype="multipart/form-data">
+      <p>
+        <label>Nama</label>
+        <input type="text" name="name" required value="<%= server ? server.name : '' %>" />
+      </p>
+      <p>
+        <label>Grup (mis. kantor, atau nama client)</label>
+        <input type="text" name="group_name" value="<%= server ? server.group : 'kantor' %>" />
+      </p>
+      <p>
+        <label>Host / IP</label>
+        <input type="text" name="host" required value="<%= server ? server.host : '' %>" />
+      </p>
+      <p>
+        <label>Port SSH</label>
+        <input type="text" name="port" value="<%= server ? server.port : '22' %>" />
+      </p>
+      <p>
+        <label>User SSH</label>
+        <input type="text" name="user" required value="<%= server ? server.user : '' %>" />
+      </p>
+      <p>
+        <label>Private key (<%= server ? 'kosongkan kalau tidak diganti' : 'wajib' %>)</label>
+        <input type="file" name="ssh_key" <%= server ? '' : 'required' %> />
+      </p>
+      <p>
+        <label>Jump host (opsional — server ini diakses lewat server lain)</label>
+        <select name="via_server_id">
+          <option value="">(akses langsung)</option>
+          <% for (const s of servers) { %>
+            <option value="<%= s.id %>" <%= server && server.via === s.id ? 'selected' : '' %>><%= s.name %></option>
+          <% } %>
+        </select>
+      </p>
+      <p>
+        <label>
+          <input type="checkbox" name="has_docker" <%= server && server.hasDocker ? 'checked' : '' %> style="width:auto" />
+          Ada Docker di server ini
+        </label>
+      </p>
+      <p>
+        <button type="submit"><%= server ? 'Simpan perubahan' : 'Tambah server' %></button>
+      </p>
+    </form>
+
+    <% if (server) { %>
+      <form method="post" action="/servers/<%= server.id %>/delete" onsubmit="return confirm('Hapus server ini beserta key-nya?');">
+        <button type="submit" style="background:#7f1d1d;">Hapus server</button>
+      </form>
+    <% } %>
+  </main>
+</body>
+</html>

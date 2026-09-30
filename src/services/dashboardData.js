@@ -1,5 +1,5 @@
 const db = require('../db');
-const { loadServers } = require('./serverConfig');
+const { listServers, getServerById } = require('./serverStore');
 
 const getLatestCheck = db.prepare(`
   SELECT status, checked_at, latency_ms, error_message
@@ -34,23 +34,29 @@ const getHistory = db.prepare(`
 `);
 
 function getDashboardServers() {
-  const servers = loadServers();
+  const servers = listServers();
+  const byId = new Map(servers.map((s) => [s.id, s]));
   return servers.map((s) => ({
     ...s,
+    viaName: s.via != null ? (byId.get(s.via) || {}).name || null : null,
     lastCheck: getLatestCheck.get(s.id) || null,
   }));
 }
 
 function getServerDetail(serverId) {
-  const server = loadServers().find((s) => s.id === serverId);
+  const id = Number(serverId);
+  const server = getServerById(id);
   if (!server) return null;
+
+  const viaServer = server.via != null ? getServerById(server.via) : null;
 
   return {
     ...server,
-    lastCheck: getLatestCheck.get(serverId) || null,
-    docker: getLatestDockerSnapshot.get(serverId) || null,
-    ports: getLatestPortSnapshot.get(serverId) || null,
-    history: getHistory.all(serverId),
+    viaName: viaServer ? viaServer.name : null,
+    lastCheck: getLatestCheck.get(id) || null,
+    docker: getLatestDockerSnapshot.get(id) || null,
+    ports: getLatestPortSnapshot.get(id) || null,
+    history: getHistory.all(id),
   };
 }
 

@@ -1,16 +1,14 @@
 const fs = require('fs');
 const { Client } = require('ssh2');
-const { getServerById } = require('./serverConfig');
+const { getServerById } = require('./serverStore');
 
 const CONNECT_TIMEOUT_MS = Number(process.env.SSH_CONNECT_TIMEOUT_MS || 8000);
 const COMMAND_TIMEOUT_MS = Number(process.env.SSH_COMMAND_TIMEOUT_MS || 10000);
 
-const keyCache = new Map();
+// Key dibaca langsung dari disk tiap koneksi (bukan di-cache in-memory),
+// supaya penggantian key lewat form edit langsung berlaku tanpa restart.
 function readKey(keyPath) {
-  if (!keyCache.has(keyPath)) {
-    keyCache.set(keyPath, fs.readFileSync(keyPath));
-  }
-  return keyCache.get(keyPath);
+  return fs.readFileSync(keyPath);
 }
 
 /**

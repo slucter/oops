@@ -9,7 +9,15 @@
     </div>
   </header>
   <main>
-    <h1>Status Server</h1>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h1>Status Server</h1>
+      <a class="server-link" href="/servers/new"><button type="button">+ Tambah Server</button></a>
+    </div>
+
+    <% if (servers.length === 0) { %>
+      <p class="meta">Belum ada server terdaftar. <a class="server-link" href="/servers/new">Tambah server pertama</a>.</p>
+    <% } %>
+
     <%
       const groups = {};
       for (const s of servers) {
@@ -27,6 +35,7 @@
             <th>Status</th>
             <th>Latency</th>
             <th>Cek terakhir</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -35,12 +44,13 @@
             <tr>
               <td>
                 <a class="server-link" href="/server/<%= s.id %>"><%= s.name %></a>
-                <% if (s.via) { %><div class="meta">via <%= s.via %></div><% } %>
+                <% if (s.viaName) { %><div class="meta">via <%= s.viaName %></div><% } %>
               </td>
               <td><%= s.host %>:<%= s.port %></td>
               <td><span class="badge badge-<%= status %>"><%= status.toUpperCase() %></span></td>
               <td><%= s.lastCheck && s.lastCheck.latency_ms != null ? s.lastCheck.latency_ms + ' ms' : '-' %></td>
               <td class="meta"><%= s.lastCheck ? s.lastCheck.checked_at : 'belum pernah dicek' %></td>
+              <td><a class="server-link" href="/servers/<%= s.id %>/edit">edit</a></td>
             </tr>
           <% } %>
         </tbody>

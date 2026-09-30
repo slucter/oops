@@ -10,10 +10,10 @@
   </header>
   <main>
     <p><a class="server-link" href="/">&larr; kembali ke dashboard</a></p>
-    <h1><%= server.name %></h1>
+    <h1><%= server.name %> <a class="server-link" style="font-size:0.6em;" href="/servers/<%= server.id %>/edit">edit</a></h1>
     <p class="meta">
       <%= server.host %>:<%= server.port %> ·
-      <%= server.user %><% if (server.via) { %> · via <%= server.via %><% } %>
+      <%= server.user %><% if (server.viaName) { %> · via <%= server.viaName %><% } %>
     </p>
 
     <% const status = server.lastCheck ? server.lastCheck.status : 'unknown'; %>

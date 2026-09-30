@@ -11,11 +11,12 @@ npm install
 cp .env.example .env
 # isi SESSION_SECRET di .env dengan string acak (mis. `openssl rand -hex 32`)
 
-cp config/servers.example.yaml config/servers.yaml
-# edit config/servers.yaml sesuai server nyata (host, user, path private key, jump host)
-
 node src/scripts/createUser.js <username> <password>
 ```
+
+Daftar server (host, user, private key, jump host) ditambahkan lewat form
+web setelah login, di menu "+ Tambah Server" pada dashboard — tidak perlu
+edit file config.
 
 ## Prasyarat di tiap server target
 
@@ -27,7 +28,7 @@ server target lewat `visudo -f /etc/sudoers.d/sxops`:
 <user> ALL=(root) NOPASSWD: /usr/sbin/ss
 ```
 
-Kalau server itu juga punya Docker dan `has_docker: true` di config, pastikan
+Kalau server itu juga punya Docker dan dicentang "Ada Docker" di form, pastikan
 user SSH tergabung di group `docker` (`sudo usermod -aG docker <user>`) supaya
 `docker ps -a` tidak perlu sudo terpisah.
 
@@ -43,9 +44,11 @@ Buka `http://localhost:3000`, login dengan user yang dibuat lewat
 
 ## Struktur
 
-- `config/servers.yaml` — daftar server (tidak di-commit, lihat `.gitignore`)
+- `src/services/serverStore.js` — CRUD server (tabel `servers` di SQLite)
+- `src/middleware/keyUpload.js` — upload & validasi private key ke `data/keys/`
 - `src/services/sshClient.js` — koneksi SSH, termasuk chaining lewat jump host (`via`)
 - `src/services/statusChecker.js` — cek status + ambil `docker ps -a` / `sudo ss -tulnp`
 - `src/scheduler/` — polling berkala
 - `src/routes/`, `src/views/` — web app (Express + EJS)
-- `data/sxops.sqlite` — database hasil cek (tidak di-commit)
+- `data/sxops.sqlite` — database (server, hasil cek) — tidak di-commit
+- `data/keys/` — private key hasil upload — tidak di-commit
