@@ -12,7 +12,27 @@
       </div>
     </div>
 
-    <% const groupNames = Object.keys(grouped); %>
+    <%
+      const groupNames = Object.keys(grouped);
+      let criticalCount = 0, warningCount = 0;
+      for (const g of groupNames) {
+        for (const c of grouped[g]) {
+          if (c.worstSeverity === 'critical') criticalCount++;
+          else if (c.worstSeverity === 'warning') warningCount++;
+        }
+      }
+    %>
+    <% if (criticalCount + warningCount > 0) { %>
+      <div class="banner-alert">
+        <span>⚠</span>
+        <span>
+          <span class="count"><%= criticalCount + warningCount %></span> client perlu perhatian
+          <% if (criticalCount) { %> &middot; <%= criticalCount %> critical<% } %>
+          <% if (warningCount) { %> &middot; <%= warningCount %> warning<% } %>
+        </span>
+      </div>
+    <% } %>
+
     <% if (groupNames.length === 0) { %>
       <div class="empty-state">
         <span class="big">No clients registered</span>
@@ -31,6 +51,7 @@
           <thead>
             <tr>
               <th>Client</th>
+              <th>Alert</th>
               <th>Hostname</th>
               <th>IP</th>
               <th>Status</th>
@@ -45,6 +66,16 @@
             <% for (const c of grouped[groupName]) { %>
               <tr>
                 <td class="cell-name"><a class="server-link" href="/client/<%= c.id %>"><%= c.name %></a></td>
+                <td>
+                  <% if (c.alerts && c.alerts.length) { %>
+                    <span class="alert-dot alert-<%= c.worstSeverity %>"
+                          title="<%= c.alerts.map(function(a){ return a.message; }).join(' | ') %>">
+                      ⚠ <%= c.alerts.length %>
+                    </span>
+                  <% } else { %>
+                    <span class="alert-dot alert-ok">OK</span>
+                  <% } %>
+                </td>
                 <td class="meta"><%= c.hostname || '—' %></td>
                 <td>
                   <% if (c.privateIp || c.publicIp) { %>

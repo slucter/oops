@@ -46,6 +46,7 @@ router.get('/client/:id/live', (req, res) => {
     latencyStats: detail.latencyStats,
     metric: detail.metric,
     metricHistory: detail.metricHistory,
+    alerts: detail.alerts,
     uptimeText: detail.metric ? formatUptime(detail.metric.uptime_seconds) : '-',
   });
 });

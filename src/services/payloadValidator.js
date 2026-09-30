@@ -36,7 +36,7 @@ function validateMetricPayload(payload) {
 
   const numericFields = [
     'memTotalMb', 'memUsedMb', 'diskTotalGb', 'diskUsedGb',
-    'load1m', 'load5m', 'load15m', 'uptimeSeconds',
+    'load1m', 'load5m', 'load15m', 'uptimeSeconds', 'cpuCount',
   ];
   for (const field of numericFields) {
     if (!isFiniteNumberOrNull(payload[field])) {
@@ -66,6 +66,7 @@ function validateMetricPayload(payload) {
       load5m: payload.load5m ?? null,
       load15m: payload.load15m ?? null,
       uptimeSeconds: payload.uptimeSeconds ?? null,
+      cpuCount: payload.cpuCount ?? null,
       hostname: payload.hostname ?? null,
       privateIp,
       publicIp,

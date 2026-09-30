@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS client_metrics (
   load_5m REAL,
   load_15m REAL,
   uptime_seconds INTEGER,
-  latency_ms INTEGER
+  latency_ms INTEGER,
+  cpu_count INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_client_metrics_client ON client_metrics (client_id, received_at DESC);
 
@@ -61,3 +62,30 @@ CREATE TABLE IF NOT EXISTS status_history (
   changed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_status_history_client ON status_history (client_id, changed_at DESC);
+
+-- Pengaturan aplikasi (key-value). Dipakai untuk threshold alert dan
+-- kredensial Telegram, supaya bisa diubah dari web tanpa redeploy.
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Alert aktif & riwayatnya. Satu baris per kejadian: dibuat saat kondisi
+-- mulai bermasalah, di-resolve saat pulih. `resolved_at IS NULL` berarti
+-- alert masih aktif — dipakai untuk badge di tabel dan peredam notifikasi
+-- (tidak mengirim ulang selama baris aktifnya masih ada).
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'warning' CHECK (severity IN ('info', 'warning', 'critical')),
+  message TEXT NOT NULL,
+  value_text TEXT,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at TEXT,
+  notified_at TEXT,
+  resolve_notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts (client_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts (client_id, kind) WHERE resolved_at IS NULL;

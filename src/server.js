@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
 const clientRoutes = require('./routes/clients');
 const groupRoutes = require('./routes/groups');
+const settingsRoutes = require('./routes/settings');
 const installRoutes = require('./routes/install');
 const wsServer = require('./ws/server');
 
@@ -50,6 +51,7 @@ app.use(authRoutes);
 app.use(requireAuth, dashboardRoutes);
 app.use(requireAuth, clientRoutes);
 app.use(requireAuth, groupRoutes);
+app.use(requireAuth, settingsRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

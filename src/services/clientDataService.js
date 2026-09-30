@@ -1,14 +1,20 @@
 const db = require('../db');
+const alertEngine = require('./alertEngine');
 
 const insertMetric = db.prepare(`
   INSERT INTO client_metrics (
     client_id, mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
-    load_1m, load_5m, load_15m, uptime_seconds, latency_ms
+    load_1m, load_5m, load_15m, uptime_seconds, latency_ms, cpu_count
   )
   VALUES (
     @clientId, @memTotalMb, @memUsedMb, @diskTotalGb, @diskUsedGb,
-    @load1m, @load5m, @load15m, @uptimeSeconds, @latencyMs
+    @load1m, @load5m, @load15m, @uptimeSeconds, @latencyMs, @cpuCount
   )
+`);
+
+const getClientForAlert = db.prepare(`
+  SELECT id, name, hostname, private_ip AS privateIp, last_seen_at AS lastSeenAt
+  FROM clients WHERE id = ?
 `);
 
 const updateClientSeen = db.prepare(`
@@ -49,6 +55,9 @@ function recordStatusChange(clientId, newStatus) {
  */
 function recordMetric(clientId, payload) {
   const latencyMs = payload.latencyMs != null ? payload.latencyMs : null;
+  const prev = getClientStatus.get(clientId);
+  const prevStatus = prev ? prev.status : null;
+
   recordStatusChange(clientId, 'up');
   updateClientSeen.run({
     id: clientId,
@@ -68,7 +77,21 @@ function recordMetric(clientId, payload) {
     load15m: payload.load15m,
     uptimeSeconds: payload.uptimeSeconds,
     latencyMs,
+    cpuCount: payload.cpuCount != null ? payload.cpuCount : null,
   });
+
+  // Evaluasi alert setelah data tersimpan, dan jangan biarkan kegagalannya
+  // menjatuhkan jalur penerimaan metrik — monitoring harus tetap jalan
+  // walaupun notifikasi bermasalah.
+  try {
+    const client = getClientForAlert.get(clientId);
+    if (client) {
+      if (prevStatus !== 'up') alertEngine.onClientOnline(client, prevStatus);
+      alertEngine.evaluateMetric(client, { ...payload, latencyMs });
+    }
+  } catch (err) {
+    console.error('[alert] gagal evaluasi metrik:', err.message);
+  }
 }
 
 /** Simpan/replace hasil command on-demand (docker_ps / port_listen). */
@@ -93,6 +116,13 @@ function markStaleClientsDown(thresholdSeconds) {
   for (const row of stale) {
     recordStatusChange(row.id, 'down');
     setClientStatus.run('down', row.id);
+
+    try {
+      const client = getClientForAlert.get(row.id);
+      if (client) alertEngine.onClientOffline(client);
+    } catch (err) {
+      console.error('[alert] gagal memicu alert offline:', err.message);
+    }
   }
   return stale.length;
 }

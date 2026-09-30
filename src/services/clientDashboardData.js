@@ -1,5 +1,6 @@
 const db = require('../db');
 const clientStore = require('./clientStore');
+const alertEngine = require('./alertEngine');
 
 const getLatestMetric = db.prepare(`
   SELECT received_at, mem_total_mb, mem_used_mb, disk_total_gb, disk_used_gb,
@@ -60,9 +61,23 @@ function getDashboardClients() {
   for (const c of clients) {
     const groupName = c.groupName || 'Belum dikelompokkan';
     grouped[groupName] = grouped[groupName] || [];
-    grouped[groupName].push({ ...c, metric: withMetricPercent(getLatestMetric.get(c.id)) });
+    const alerts = alertEngine.getActiveForClient(c.id);
+    grouped[groupName].push({
+      ...c,
+      metric: withMetricPercent(getLatestMetric.get(c.id)),
+      alerts,
+      worstSeverity: worstOf(alerts),
+    });
   }
   return grouped;
+}
+
+/** Tingkat keparahan tertinggi dari daftar alert aktif. */
+function worstOf(alerts) {
+  if (!alerts || alerts.length === 0) return null;
+  if (alerts.some((a) => a.severity === 'critical')) return 'critical';
+  if (alerts.some((a) => a.severity === 'warning')) return 'warning';
+  return 'info';
 }
 
 function getClientDetail(clientId) {
@@ -82,6 +97,8 @@ function getClientDetail(clientId) {
       max: stats.max_ms,
     },
     history: getHistory.all(id),
+    alerts: alertEngine.getActiveForClient(id),
+    alertHistory: alertEngine.getRecentForClient(id),
     dockerResult: getCommandResult.get(id, 'docker_ps') || null,
     portResult: getCommandResult.get(id, 'port_listen') || null,
   };

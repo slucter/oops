@@ -1,0 +1,119 @@
+<%- include('partials/layout-head', { title: 'Setting & Alert - Oops' }) %>
+<%- include('partials/navbar', { username: username }) %>
+  <main>
+    <nav class="crumbs">
+      <a href="/">&larr; Dashboard</a>
+      <span class="sep">/</span>
+      <span class="current">Setting &amp; Alert</span>
+    </nav>
+
+    <div class="page-head">
+      <div>
+        <h1>Setting &amp; Alert</h1>
+        <div class="page-sub">Ambang batas alert dan notifikasi Telegram.</div>
+      </div>
+    </div>
+
+    <% if (error) { %><div class="error"><%= error %></div><% } %>
+    <% if (notice) { %><div class="notice"><%= notice %></div><% } %>
+
+    <form method="post" action="/settings">
+      <h2>Ambang batas alert</h2>
+      <div class="panel panel-pad">
+        <p class="meta" style="margin-top:0;">
+          Alert muncul sekali saat kondisi mulai terlampaui, dan sekali lagi saat
+          pulih — tidak diulang selama masalahnya masih sama.
+        </p>
+
+        <div class="settings-grid">
+          <div class="field">
+            <label for="alert_disk_percent">Disk terpakai (%)</label>
+            <input type="text" id="alert_disk_percent" name="alert_disk_percent"
+                   value="<%= settings.alert_disk_percent %>" inputmode="numeric" />
+            <div class="field-hint">Critical otomatis di ≥95%</div>
+          </div>
+          <div class="field">
+            <label for="alert_mem_percent">RAM terpakai (%)</label>
+            <input type="text" id="alert_mem_percent" name="alert_mem_percent"
+                   value="<%= settings.alert_mem_percent %>" inputmode="numeric" />
+            <div class="field-hint">Critical otomatis di ≥97%</div>
+          </div>
+          <div class="field">
+            <label for="alert_load_per_cpu">CPU load per core</label>
+            <input type="text" id="alert_load_per_cpu" name="alert_load_per_cpu"
+                   value="<%= settings.alert_load_per_cpu %>" inputmode="decimal" />
+            <div class="field-hint">Load dibagi jumlah core, jadi adil untuk mesin besar maupun kecil</div>
+          </div>
+          <div class="field">
+            <label for="alert_latency_ms">Latency (ms)</label>
+            <input type="text" id="alert_latency_ms" name="alert_latency_ms"
+                   value="<%= settings.alert_latency_ms %>" inputmode="numeric" />
+            <div class="field-hint">Round-trip dari server monitoring ke agent</div>
+          </div>
+          <div class="field">
+            <label for="alert_disk_forecast_hours">Prediksi disk penuh (jam)</label>
+            <input type="text" id="alert_disk_forecast_hours" name="alert_disk_forecast_hours"
+                   value="<%= settings.alert_disk_forecast_hours %>" inputmode="numeric" />
+            <div class="field-hint">Peringatkan kalau diperkirakan penuh dalam rentang ini</div>
+          </div>
+        </div>
+
+        <div style="height:1px; background:var(--line); margin:1.1rem 0;"></div>
+
+        <div class="check-row">
+          <label class="check">
+            <input type="checkbox" name="alert_on_offline" <%= settings.alert_on_offline === '1' ? 'checked' : '' %> />
+            <span>Alert saat client OFFLINE</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="alert_on_recover" <%= settings.alert_on_recover === '1' ? 'checked' : '' %> />
+            <span>Kirim notifikasi saat pulih</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="alert_on_new_client" <%= settings.alert_on_new_client === '1' ? 'checked' : '' %> />
+            <span>Alert saat client baru terhubung</span>
+          </label>
+        </div>
+      </div>
+
+      <h2>Notifikasi Telegram</h2>
+      <div class="panel panel-pad">
+        <p class="meta" style="margin-top:0;">
+          Buat bot lewat <b>@BotFather</b>, tambahkan bot itu ke grup Anda, lalu isi
+          chat ID grup di bawah. Chat ID grup biasanya diawali tanda minus
+          (contoh: <code>-1001234567890</code>).
+        </p>
+
+        <label class="check" style="margin-bottom:1rem;">
+          <input type="checkbox" name="telegram_enabled" <%= settings.telegram_enabled === '1' ? 'checked' : '' %> />
+          <span>Aktifkan notifikasi Telegram</span>
+        </label>
+
+        <div class="field">
+          <label for="telegram_bot_token">Bot token</label>
+          <input type="password" id="telegram_bot_token" name="telegram_bot_token"
+                 placeholder="<%= hasToken ? tokenMasked + ' (biarkan kosong untuk mempertahankan)' : '123456:ABC-DEF...' %>"
+                 autocomplete="off" />
+          <div class="field-hint">
+            <% if (hasToken) { %>
+              Token tersimpan. Isi hanya kalau ingin menggantinya.
+            <% } else { %>
+              Belum ada token tersimpan.
+            <% } %>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="telegram_chat_id">Chat ID grup</label>
+          <input type="text" id="telegram_chat_id" name="telegram_chat_id"
+                 value="<%= settings.telegram_chat_id %>" placeholder="-1001234567890" autocomplete="off" />
+        </div>
+      </div>
+
+      <div style="margin-top:1.2rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
+        <button type="submit" class="btn-primary">Simpan pengaturan</button>
+        <button type="submit" formaction="/settings/test-telegram" class="btn-ghost">Kirim pesan uji</button>
+      </div>
+    </form>
+  </main>
+<%- include('partials/layout-foot') %>

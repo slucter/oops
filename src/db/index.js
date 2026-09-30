@@ -29,5 +29,6 @@ addColumnIfMissing('clients', 'last_latency_ms', 'INTEGER');
 addColumnIfMissing('client_metrics', 'latency_ms', 'INTEGER');
 addColumnIfMissing('clients', 'private_ip', 'TEXT');
 addColumnIfMissing('clients', 'public_ip', 'TEXT');
+addColumnIfMissing('client_metrics', 'cpu_count', 'INTEGER');
 
 module.exports = db;

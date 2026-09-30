@@ -115,6 +115,7 @@ function sendMetric() {
       load1m: parsed.load1m,
       load5m: parsed.load5m,
       load15m: parsed.load15m,
+      cpuCount: parsed.cpuCount,
       uptimeSeconds: parseUptimeSeconds(),
       hostname,
       privateIp: getPrivateIp(),

@@ -34,6 +34,21 @@
       </span>
     </div>
 
+    <% if (item.alerts && item.alerts.length) { %>
+      <h2>Alert aktif</h2>
+      <div class="alert-list" style="margin-bottom:0.5rem;">
+        <% for (const a of item.alerts) { %>
+          <div class="alert-item sev-<%= a.severity %>">
+            <div class="body">
+              <div class="msg"><%= a.message %></div>
+              <% if (a.value_text) { %><div class="sub"><%= a.value_text %></div><% } %>
+            </div>
+            <div class="when">sejak <%= a.started_at %></div>
+          </div>
+        <% } %>
+      </div>
+    <% } %>
+
     <div id="stat-area">
     <% if (item.metric) { %>
       <div class="stat-grid">
@@ -144,6 +159,40 @@
         <% } %>
       </div>
     </div>
+
+    <h2>Riwayat alert</h2>
+    <% if (!item.alertHistory || item.alertHistory.length === 0) { %>
+      <div class="empty-state">
+        <span class="big">No alerts</span>
+        Belum ada alert tercatat untuk client ini.
+      </div>
+    <% } else { %>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:110px;">Severity</th>
+              <th>Kejadian</th>
+              <th style="width:180px;">Mulai</th>
+              <th style="width:180px;">Selesai</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% for (const a of item.alertHistory) { %>
+              <tr>
+                <td><span class="alert-dot alert-<%= a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'ok' %>"><%= a.severity.toUpperCase() %></span></td>
+                <td>
+                  <%= a.message %>
+                  <% if (a.value_text) { %><div class="meta"><%= a.value_text %></div><% } %>
+                </td>
+                <td class="meta num"><%= a.started_at %></td>
+                <td class="meta num"><%= a.resolved_at || 'masih aktif' %></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
 
     <h2>Status history</h2>
     <% if (item.history.length === 0) { %>
