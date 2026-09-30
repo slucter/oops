@@ -10,11 +10,11 @@ async function runOnce() {
     const result = await checkServer(server);
     if (result.status === 'up') {
       try {
-        await collectServerInfo(server, result.conn);
+        await collectServerInfo(server, result.handle);
       } catch (err) {
         console.error(`[scheduler] gagal ambil info server ${server.id}:`, err.message);
       } finally {
-        result.close();
+        result.handle.close();
       }
     }
   }

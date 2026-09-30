@@ -172,11 +172,12 @@ dicek memakai key yang sudah ada di `~/.ssh/` tanpa konfigurasi tambahan.
 `sudo ss -tulnp` gagal di server itu karena sudoers belum di-setup
 (prasyarat, bukan bug) — lihat catatan di bawah Tahap 3.**
 
-### Tahap 2 — Jump host / ProxyJump · kecil-menengah
+### Tahap 2 — Jump host / akses server internal via bastion · kecil-menengah
 Tujuan: server internal (contoh `user@10.10.10.10` di balik bastion) bisa
 dicek statusnya lewat chaining SSH.
-- [x] Modul ProxyJump murni via `ssh2` (`forwardOut` + koneksi kedua di
-      atas stream): buka koneksi ke bastion, forward stream ke target
+- [x] (Implementasi pertama, DIGANTI — lihat revisi di bawah) Modul
+      ProxyJump murni via `ssh2` (`forwardOut` + koneksi kedua di atas
+      stream): buka koneksi ke bastion, forward stream ke target
 - [x] Tampilkan relasi bastion → server internal di UI (grouping/nesting)
 - [x] Uji: matikan bastion → server di baliknya otomatis tampil DOWN
       (bukan error tak jelas)
@@ -201,29 +202,39 @@ lakukan manual. Otomatis pakai key yang sudah ada di jump host, tidak
 perlu app tahu key itu sama sekali.
 
 Implikasi:
-- [ ] `sshClient.js`: untuk server dengan `via`, ganti dari
+- [x] `sshClient.js`: untuk server dengan `via`, ganti dari
       `forwardOut`+koneksi kedua jadi `execCommand` yang membungkus
       command asli dengan `ssh -o BatchMode=yes -o ConnectTimeout=N
       <user>@<host> -p <port> -- <command>` dijalankan di koneksi ke
-      jump host. Host key checking: pertimbangkan
-      `-o StrictHostKeyChecking=accept-new` supaya tidak macet nunggu
-      prompt (jump host jalan unattended)
-- [ ] Cek status UP/DOWN untuk server `via`: tidak lagi "connect lalu
-      langsung tahu", tapi lewat exit code command probe di jump host
-      (mis. `ssh ... true` — exit 0 berarti UP)
-- [ ] `docker ps -a` / `sudo ss -tulnp` untuk server `via`: command asli
-      dibungkus jadi `ssh <target> -- 'sudo ss -tulnp'` dijalankan dari
-      jump host, bukan dari koneksi langsung ke target
-- [ ] Bedakan tiga kegagalan: jump host sendiri tak terjangkau
-      (`unreachable`), `ssh` command di jump host gagal auth/connect ke
-      target (`down` untuk target), vs command di target sukses tapi
-      hasilnya error (mis. sudo gagal — bukan status DOWN, cuma pesan
-      error di docker/port snapshot)
-- [ ] Uji ulang ke `Load Balancer KST` (10.10.10.5:22 via KST-DEV) —
-      server nyata pertama yang akan memvalidasi pendekatan baru ini
+      jump host. `-o StrictHostKeyChecking=accept-new` dipakai supaya
+      tidak macet nunggu prompt host key pertama kali
+- [x] Cek status UP/DOWN untuk server `via`: lewat exit code command
+      probe `ssh ... true` yang dijalankan di jump host (exit 0 = UP)
+- [x] `docker ps -a` / `sudo ss -tulnp` untuk server `via`: command asli
+      dibungkus jadi `ssh <target> -- '<command>'` dijalankan dari jump
+      host, bukan dari koneksi langsung ke target
+- [x] Bedakan tiga kegagalan lewat `JumpHostUnreachableError` (class
+      khusus, dicek dengan `instanceof` — bukan string-matching pesan
+      error yang rapuh seperti versi awal): jump host sendiri tak
+      terjangkau (`unreachable`), `ssh` command di jump host gagal
+      auth/connect ke target (`down` untuk target), vs command di target
+      sukses tapi hasilnya error (bukan status DOWN, cuma pesan error di
+      docker/port snapshot — sama seperti server non-via)
+- [x] Uji ke `Load Balancer KST` (10.10.10.5:22 via KST-DEV) — server
+      nyata pertama yang memvalidasi pendekatan baru ini
 Selesai kalau: `Load Balancer KST` berhasil menunjukkan status UP/DOWN
 yang benar, dan (kalau applicable) info docker/port-nya, memakai key yang
 tetap tinggal di KST-DEV — tidak ada key yang perlu disalin ke mesin app.
+**Status: selesai, TERVALIDASI ke server nyata. `connect()` ke
+`10.10.10.5` via `KST-DEV` berhasil (`whoami` mengembalikan `iyan`, exit
+0). Diuji juga 2 skenario kegagalan: jump host mati →
+`JumpHostUnreachableError`/`unreachable` (benar); jump host hidup tapi
+target di baliknya mati → `Error` biasa/`down` dengan pesan jelas dari
+`ssh` di jump host ("No route to host") (benar). `sudo ss -tulnp` di
+`10.10.10.5` gagal karena sudoers belum di-setup (sama seperti KST-DEV —
+prasyarat, bukan bug); `docker ps -a` gagal "command not found" karena
+Load Balancer memang tidak punya Docker — checkbox "Ada Docker" untuk
+server ini seharusnya tidak dicentang.**
 
 ### Tahap 3 — Docker & port info · menengah
 Tujuan: untuk server yang UP dan `has_docker: true`, tampilkan hasil

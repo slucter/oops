@@ -15,15 +15,9 @@
 **Branch:** master
 
 ## Sedang mengerjakan
-Perbaikan bug + fitur kecil pasca-Tahap 1c, dipicu laporan langsung dari
-pemilik projek yang menjalankan app di terminalnya sendiri: dashboard
-menampilkan UNKNOWN dan terminal menunjukkan
-`[scheduler] gagal ambil info server 1: Timeout saat koneksi SSH`.
-Root cause: `checkServer` dan `collectServerInfo` masing-masing membuka
-koneksi SSH terpisah (2x handshake per siklus polling per server) —
-diperbaiki jadi satu koneksi dibagi dua. Sekalian ditambah auto-refresh
-dashboard (diminta pemilik projek di tengah investigasi bug ini). Belum
-di-commit.
+Tahap 2 (jump host) baru saja SELESAI dan TERVALIDASI ke server nyata,
+tapi dengan pendekatan yang berbeda total dari rencana awal — lihat
+"Sudah dilakukan" untuk detail. Perubahan sesi ini belum di-commit.
 
 ## Kenapa
 Pemilik projek memegang banyak server kantor + client, butuh dashboard
@@ -36,88 +30,117 @@ untuk SSH sehari-hari dan tidak mau upload ulang lewat browser. App
 rencananya dipindah ke server kantor 24/7 (bukan tetap di laptop ini).
 
 ## Sudah dilakukan di session ini
-- **Tahap 1** (fondasi): selesai & commit `444931e`.
-- **Tahap 1b** (DB + form web + upload key): selesai & commit `a5c8fc8`, `b0c2fe8`.
-- **Tahap 1c** (auto-discovery key dari `~/.ssh/`, hapus upload): selesai &
-  commit `e07609c`, `ea1ad91`. Tervalidasi ke server SSH nyata
-  (`iyan@36.88.32.238:1031`) — `connect()` dan `docker ps -a` berhasil.
-  `sudo ss -tulnp` gagal di server itu karena sudoers belum di-setup
-  (prasyarat terdokumentasi, bukan bug — lihat "Catatan penting").
-- **Perbaikan bug (sesi ini, BELUM commit)**: pemilik projek menjalankan
-  app sendiri di terminalnya, menambah server "KST-DEV"
-  (`iyan@36.88.32.238:1031`) lewat form, lalu melaporkan dashboard
-  menunjukkan UNKNOWN dan terminal menampilkan
-  `[scheduler] gagal ambil info server 1: Timeout saat koneksi SSH`.
-  - Root cause: `checkServer()` dan `collectServerInfo()` di
-    `statusChecker.js` masing-masing memanggil `connect()` sendiri —
-    2 handshake SSH penuh per server per siklus polling. Reproduksi
-    manual (3x percobaan berturut-turut) tidak selalu gagal (1.1–2.5
-    detik), tapi 2 koneksi terpisah lebih rentan kena hiccup jaringan/
-    rate-limit sesaat dibanding 1 koneksi dipakai ulang.
-  - Fix: `checkServer()` sekarang mengembalikan `{ conn, close }` saat
-    berhasil; `collectServerInfo(server, conn)` menerima koneksi itu
-    langsung, tidak connect ulang. `scheduler/index.js` memanggil
-    `result.close()` di blok `finally` setelah `collectServerInfo`.
-  - Diverifikasi lewat render EJS langsung + baca-ulang kode (BUKAN lewat
-    server HTTP baru — proses node milik pemilik projek sendiri yang
-    masih pegang port 3000 & lock `data/sxops.sqlite`, sengaja tidak
-    diganggu).
-- **Fitur auto-refresh dashboard** (diminta pemilik projek di tengah sesi
-  ini, "di web ya tambahkan refresh dong"): `dashboard.ejs` sekarang punya
-  tombol "Refresh" manual + auto-reload tiap 30 detik dengan indikator
-  hitung mundur (`refresh otomatis dalam Ns`), JS inline sederhana, tanpa
-  dependency baru.
-- Jump host (Tahap 2, `via`) **masih belum divalidasi ke server nyata** —
-  yang tervalidasi baru koneksi langsung tanpa jump host.
+- **Tahap 1, 1b, 1c**: selesai & commit (`444931e`, `a5c8fc8`, `b0c2fe8`,
+  `e07609c`, `ea1ad91`).
+- **Fix bug koneksi ganda + auto-refresh dashboard**: selesai & commit
+  `f862ebd`. Pemilik projek melaporkan dashboard UNKNOWN + terminal
+  `Timeout saat koneksi SSH` saat collectServerInfo — penyebabnya
+  `checkServer`/`collectServerInfo` masing-masing connect sendiri (2x
+  handshake). Digabung jadi 1 koneksi dipakai ulang. Auto-refresh
+  dashboard (tombol manual + reload tiap 30 detik) ditambahkan atas
+  permintaan langsung pemilik projek di tengah investigasi.
+- **Tahap 2 — jump host, DIROMBAK dan TERVALIDASI ke server nyata (sesi
+  ini, BELUM commit)**: pemilik projek menambahkan server nyata pertama
+  via jump host lewat form — "Load Balancer KST" (`10.10.10.5:22`, via
+  "KST-DEV"). Sempat menanyakan cara kerjanya, lalu mengungkap fakta
+  penting: key untuk login ke `10.10.10.5` **tersimpan di dalam KST-DEV
+  itu sendiri**, bukan di laptopnya. Ini pola SSH manual sehari-harinya:
+  SSH ke bastion dulu, lalu DARI DALAM bastion baru SSH lagi ke internal
+  host pakai key yang cuma ada di situ.
+  - Implementasi ProxyJump murni sebelumnya (`ssh2` `forwardOut` + auth
+    ulang dari mesin app) **tidak bisa** bekerja untuk pola ini — app
+    tidak pernah, dan tidak seharusnya, punya akses ke key yang tersimpan
+    di jump host.
+  - **Didiskusikan dengan pemilik projek** (AskUserQuestion), dia pilih
+    pendekatan "shell-out": app connect ke jump host seperti biasa
+    (auto-discovery key normal), lalu MENJALANKAN COMMAND `ssh
+    <user>@<host> -p <port> -- <command>` DI DALAM shell jump host itu —
+    meniru persis kebiasaan manualnya. `sshClient.js` dirombak total:
+    `connect()` untuk server ber-`via` sekarang melakukan probe
+    (`ssh ... true`) lewat jump host, balikan berupa handle dengan
+    `execRemote()` yang otomatis wrap command lewat `ssh` di jump host.
+    `JumpHostUnreachableError` (class, dicek `instanceof`) menggantikan
+    string-matching regex `/jump host/i` yang rapuh sebelumnya — bug
+    laten yang ikut ditemukan & diperbaiki (regex lama bisa salah
+    mengklasifikasikan "target down" sebagai "jump host unreachable").
+  - `statusChecker.js`/`scheduler/index.js` disesuaikan: `checkServer`
+    mengembalikan `handle` (bukan `conn` mentah), `collectServerInfo`
+    dan `execCommand` menerima `handle` itu.
+  - **TERVALIDASI ke server nyata** (mocking `serverStore.getServerById`
+    di script sekali-pakai, BUKAN lewat proses server HTTP pemilik
+    projek yang sengaja tidak diganggu): `connect()` ke `10.10.10.5` via
+    `KST-DEV` berhasil, `whoami` via jalur itu mengembalikan `iyan`.
+    2 skenario kegagalan diuji dan benar: jump host mati →
+    `JumpHostUnreachableError`; jump host hidup tapi target mati → error
+    biasa dengan pesan jelas dari `ssh` di jump host ("No route to
+    host"). `sudo ss -tulnp` di `10.10.10.5` gagal karena sudoers belum
+    di-setup (sama seperti KST-DEV, prasyarat bukan bug); `docker ps -a`
+    gagal "command not found" karena Load Balancer memang tidak punya
+    Docker.
 
 ## Langkah berikutnya yang konkret
-1. **Commit perubahan sesi ini** (fix koneksi ganda + auto-refresh) —
-   belum dilakukan, lihat "Berkas yang sedang disentuh".
-2. **Minta pemilik projek restart app-nya** (proses lama di terminalnya
-   masih jalan dengan kode lama) supaya fix koneksi ganda + auto-refresh
-   aktif, lalu konfirmasi apakah error timeout itu hilang.
-3. **Ingatkan pemilik projek**: server `iyan@36.88.32.238:1031` masih
-   perlu `visudo -f /etc/sudoers.d/sxops` dengan isi
-   `iyan ALL=(root) NOPASSWD: /usr/sbin/ss` supaya port listen terbaca
-   (lihat README.md "Prasyarat di tiap server target") — ini belum
-   dilakukan, error `sudo: a password is required` akan terus muncul di
-   halaman detail server sampai itu di-setup.
-4. Pemilik projek tambah server via jump host yang nyata lewat form,
-   untuk memvalidasi Tahap 2 (ProxyJump) — sampai sekarang jalur itu
-   masih murni teoretis, belum pernah jalan ke SSH server sungguhan.
-5. Pemilik projek buat user produksi (bukan `admin`/`testpassword123`
-   yang dipakai saat testing): `node src/scripts/createUser.js <user> <pass>`.
+1. **Commit perubahan Tahap 2** (lihat "Berkas yang sedang disentuh").
+2. Update `.agent/context/PLAN.md` — sudah diupdate duluan di sesi ini,
+   pastikan konsisten dengan commit.
+3. **Minta pemilik projek restart app-nya** supaya kode Tahap 2 yang baru
+   aktif, lalu cek dashboard: "Load Balancer KST" harusnya UP.
+4. **Beritahu pemilik projek**: uncheck "Ada Docker" untuk "Load Balancer
+   KST" di form edit — server itu memang tidak punya Docker terpasang.
+5. **Ingatkan lagi**: `10.10.10.5` (dan `36.88.32.238`) masih perlu
+   `visudo -f /etc/sudoers.d/sxops` dengan isi
+   `iyan ALL=(root) NOPASSWD: /usr/sbin/ss` di MASING-MASING server itu
+   (bukan cuma di jump host) supaya port listen terbaca.
+6. Pemilik projek buat user produksi (bukan `admin`/`testpassword123`
+   dari testing sebelumnya): `node src/scripts/createUser.js <user> <pass>`.
+7. Kalau ada server dengan jump host BERLAPIS (bastion ke bastion lain,
+   baru ke target) — belum diuji sama sekali, kode `connect()` rekursif
+   jadi harusnya jalan (jump host boleh punya `via` sendiri), tapi
+   `buildRemoteSshCommand` mengasumsikan level tunggal saat wrap command;
+   perlu dicek kalau kasus itu muncul nyata.
 
 ## Yang sudah dicoba dan gagal
-- `sudo ss -tulnp` ke `iyan@36.88.32.238:1031` gagal karena sudoers belum
-  di-setup di server itu — bukan kegagalan kode. Item #3 di atas.
+- ProxyJump murni (`ssh2` `forwardOut`) untuk server dengan `via` —
+  gagal secara desain untuk setup nyata pemilik projek (key ada di jump
+  host, bukan di mesin app). Diganti pendekatan shell-out, lihat di atas.
+- `sudo ss -tulnp` ke `36.88.32.238` dan `10.10.10.5` — gagal karena
+  sudoers belum di-setup di kedua server itu. Item #5 di atas.
 
 ## Berkas yang sedang disentuh
 Belum di-commit:
 ```
+M .gitignore
 M src/scheduler/index.js
+M src/services/sshClient.js
 M src/services/statusChecker.js
-M src/views/dashboard.ejs
+M .agent/context/PLAN.md
 ```
+(`.claude/scheduled_tasks.lock` sengaja diabaikan — file lock internal
+tooling, sudah ditambahkan ke `.gitignore`, bukan bagian dari perubahan
+aplikasi.)
 
 ## Catatan penting
 - **Server sxops di mesin ini sedang dijalankan LANGSUNG OLEH PEMILIK
-  PROJEK** di terminalnya sendiri (bukan proses yang saya start), dengan
-  `data/sxops.sqlite` berisi server nyata "KST-DEV". Jangan matikan proses
-  node miliknya atau hapus/reset database itu tanpa izin eksplisit —
-  beda dengan sesi-sesi sebelumnya di mana saya start & stop server test
-  sendiri lalu bersihkan datanya.
+  PROJEK** di terminalnya sendiri, dengan `data/sxops.sqlite` berisi
+  server nyata ("KST-DEV", "Load Balancer KST"). Jangan matikan proses
+  node miliknya atau hapus/reset database itu tanpa izin eksplisit.
+  Testing Tahap 2 di sesi ini dilakukan lewat script Node sekali-pakai
+  terpisah (bukan lewat server HTTP-nya) justru karena alasan ini.
+- Pola jump host yang tervalidasi: **key untuk server internal boleh
+  tersimpan HANYA di jump host**, tidak perlu ada/disalin ke mesin
+  tempat app berjalan. Ini bedanya dengan asumsi awal (ProxyJump murni)
+  yang mengasumsikan app sendiri yang autentikasi ke target.
 - User SSH di server target WAJIB dibatasi NOPASSWD sudo hanya untuk
-  `ss` (bukan full sudo) — didokumentasikan di README.md, bukan
-  otomatis di-enforce oleh app.
+  `ss` (bukan full sudo) — berlaku juga untuk server di belakang jump
+  host, di-setup di server itu sendiri (bukan di jump host-nya).
 - Key SSH yang dipakai app **tidak boleh punya passphrase** (app jalan
-  unattended). Key bertipe tidak standar otomatis di-skip oleh
-  `sshKeyDiscovery.js`, bukan error.
-- Risiko keamanan yang disadari & didokumentasikan: app mencoba SEMUA key
-  di `~/.ssh/`-nya ke server manapun yang didaftarkan — kompromi pada
-  mesin tempat app berjalan = kompromi semua server yang key-nya ada di
-  situ. Trade-off desain yang disetujui pemilik projek (PLAN.md bagian
-  Risiko).
+  unattended) — berlaku juga untuk key di dalam jump host yang dipakai
+  buat loncat ke server internal.
+- Risiko keamanan: app (lewat jump host) pada akhirnya bisa menjalankan
+  command apa saja yang key di jump host itu izinkan ke server manapun
+  yang bisa dijangkau dari situ — permukaan risikonya makin luas
+  dibanding sebelum Tahap 2, karena sekarang bukan cuma key di mesin app
+  yang relevan, tapi juga semua key yang ada di tiap jump host yang
+  didaftarkan.
 - Database (`data/*.sqlite*`) sengaja tidak di-commit (`.gitignore`) —
   sekarang berisi data server nyata pemilik projek.
 
