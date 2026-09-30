@@ -1,50 +1,68 @@
 <%- include('partials/layout-head', { title: item.name + ' - Oops' }) %>
 <%- include('partials/navbar', { username: username }) %>
   <main>
+    <nav class="crumbs">
+      <a href="/">&larr; Dashboard</a>
+      <span class="sep">/</span>
+      <span class="current"><%= item.name %></span>
+    </nav>
+
     <div class="page-head">
       <div>
         <h1><%= item.name %></h1>
         <div class="page-sub">
-          <%= item.hostname || 'hostname belum diketahui' %>
+          <span id="live-hostname"><%= item.hostname || 'hostname belum diketahui' %></span>
           <% if (item.groupName) { %> &middot; <%= item.groupName %><% } %>
-          &middot; last seen <%= item.lastSeenAt || 'never' %>
+          &middot; last seen <span id="live-lastseen"><%= item.lastSeenAt || 'never' %></span>
         </div>
       </div>
       <div class="actions">
-        <span class="badge badge-<%= item.status %>"><%= item.status.toUpperCase() %></span>
+        <span class="live-dot" id="live-indicator" title="Data diperbarui otomatis"></span>
+        <span class="badge badge-<%= item.status %>" id="live-status"><%= item.status.toUpperCase() %></span>
         <a class="btn btn-ghost" href="/clients/<%= item.id %>/edit">Edit</a>
-        <a class="btn btn-ghost" href="/">&larr; Dashboard</a>
       </div>
     </div>
 
+    <div class="ip-row">
+      <span class="ip-chip">
+        <span class="ip-label">Internal</span>
+        <span class="ip-value" id="live-private-ip"><%= item.privateIp || '—' %></span>
+      </span>
+      <span class="ip-chip">
+        <span class="ip-label">Public</span>
+        <span class="ip-value" id="live-public-ip"><%= item.publicIp || '—' %></span>
+      </span>
+    </div>
+
+    <div id="stat-area">
     <% if (item.metric) { %>
       <div class="stat-grid">
         <div class="stat-card">
           <div class="label">Memory</div>
-          <div class="value"><%- include('partials/usage-bar', { percent: item.metric.memPercent }) %></div>
-          <% if (item.metric.mem_total_mb != null) { %>
-            <div class="sub"><%= (item.metric.mem_used_mb / 1024).toFixed(1) %> GB / <%= (item.metric.mem_total_mb / 1024).toFixed(1) %> GB</div>
-          <% } %>
+          <div class="value" id="live-mem-bar"><%- include('partials/usage-bar', { percent: item.metric.memPercent }) %></div>
+          <div class="sub" id="live-mem-sub">
+            <% if (item.metric.mem_total_mb != null) { %><%= (item.metric.mem_used_mb / 1024).toFixed(1) %> GB / <%= (item.metric.mem_total_mb / 1024).toFixed(1) %> GB<% } %>
+          </div>
         </div>
         <div class="stat-card">
           <div class="label">Disk /</div>
-          <div class="value"><%- include('partials/usage-bar', { percent: item.metric.diskPercent }) %></div>
-          <% if (item.metric.disk_total_gb != null) { %>
-            <div class="sub"><%= item.metric.disk_used_gb %> GB / <%= item.metric.disk_total_gb %> GB</div>
-          <% } %>
+          <div class="value" id="live-disk-bar"><%- include('partials/usage-bar', { percent: item.metric.diskPercent }) %></div>
+          <div class="sub" id="live-disk-sub">
+            <% if (item.metric.disk_total_gb != null) { %><%= item.metric.disk_used_gb %> GB / <%= item.metric.disk_total_gb %> GB<% } %>
+          </div>
         </div>
         <div class="stat-card">
           <div class="label">CPU load</div>
-          <div class="value"><%= item.metric.load_1m != null ? item.metric.load_1m : '—' %></div>
-          <div class="sub">
+          <div class="value" id="live-load"><%= item.metric.load_1m != null ? item.metric.load_1m : '—' %></div>
+          <div class="sub" id="live-load-sub">
             5m <%= item.metric.load_5m != null ? item.metric.load_5m : '—' %>
             &middot; 15m <%= item.metric.load_15m != null ? item.metric.load_15m : '—' %>
           </div>
         </div>
         <div class="stat-card">
           <div class="label">Latency</div>
-          <div class="value"><%- include('partials/latency', { ms: item.status === 'up' ? item.lastLatencyMs : null }) %></div>
-          <div class="sub">
+          <div class="value" id="live-latency"><%- include('partials/latency', { ms: item.status === 'up' ? item.lastLatencyMs : null }) %></div>
+          <div class="sub" id="live-latency-sub">
             <% if (item.latencyStats) { %>
               avg <%= item.latencyStats.avg %>ms &middot; <%= item.latencyStats.min %>–<%= item.latencyStats.max %>ms
             <% } else { %>
@@ -54,16 +72,17 @@
         </div>
         <div class="stat-card">
           <div class="label">Uptime</div>
-          <div class="value" style="font-size:1rem;"><%= formatUptime(item.metric.uptime_seconds) %></div>
-          <div class="sub">received <%= item.metric.received_at %></div>
+          <div class="value" style="font-size:1rem;" id="live-uptime"><%= formatUptime(item.metric.uptime_seconds) %></div>
+          <div class="sub" id="live-received">received <%= item.metric.received_at %></div>
         </div>
       </div>
     <% } else { %>
       <div class="empty-state">
         <span class="big">No metrics yet</span>
-        Belum ada data masuk dari client ini.
+        Belum ada data masuk dari client ini. Halaman ini akan memperbarui diri otomatis.
       </div>
     <% } %>
+    </div>
 
     <h2>Memory &amp; CPU load</h2>
     <% if (item.metricHistory.length === 0) { %>
@@ -191,17 +210,17 @@
         });
         var load = resourceData.map(function (d) { return d.load_1m; });
 
-        var gridColor = 'rgba(0, 255, 133, 0.08)';
-        var borderColor = 'rgba(0, 255, 133, 0.16)';
-        var tickColor = '#6c8a7b';
+        var gridColor = 'rgba(61, 216, 138, 0.08)';
+        var borderColor = 'rgba(61, 216, 138, 0.16)';
+        var tickColor = '#7d9489';
         var monoFont = { family: 'JetBrains Mono, monospace', size: 10 };
 
         var ctx = document.getElementById('resource-chart').getContext('2d');
         var memFill = ctx.createLinearGradient(0, 0, 0, 260);
-        memFill.addColorStop(0, 'rgba(0, 255, 133, 0.22)');
-        memFill.addColorStop(1, 'rgba(0, 255, 133, 0)');
+        memFill.addColorStop(0, 'rgba(61, 216, 138, 0.22)');
+        memFill.addColorStop(1, 'rgba(61, 216, 138, 0)');
 
-        new Chart(ctx, {
+        window.__resourceChart = new Chart(ctx, {
           type: 'line',
           data: {
             labels: labels,
@@ -209,21 +228,21 @@
               {
                 label: 'MEMORY %',
                 data: memPercent,
-                borderColor: '#00ff85',
+                borderColor: '#3dd88a',
                 backgroundColor: memFill,
                 borderWidth: 2,
                 yAxisID: 'yPercent',
                 tension: 0.32,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                pointHoverBackgroundColor: '#00ff85',
-                pointHoverBorderColor: '#02150c',
+                pointHoverBackgroundColor: '#3dd88a',
+                pointHoverBorderColor: '#071009',
                 fill: true,
               },
               {
                 label: 'CPU LOAD 1M',
                 data: load,
-                borderColor: '#ffc93c',
+                borderColor: '#dbb352',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [4, 3],
@@ -231,8 +250,8 @@
                 tension: 0.32,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                pointHoverBackgroundColor: '#ffc93c',
-                pointHoverBorderColor: '#02150c',
+                pointHoverBackgroundColor: '#dbb352',
+                pointHoverBorderColor: '#071009',
               },
             ],
           },
@@ -253,7 +272,7 @@
               },
               yLoad: {
                 type: 'linear', position: 'right', beginAtZero: true,
-                ticks: { color: '#b08a1f', font: monoFont },
+                ticks: { color: '#9a7d3a', font: monoFont },
                 grid: { drawOnChartArea: false },
                 border: { color: borderColor },
               },
@@ -261,7 +280,7 @@
             plugins: {
               legend: {
                 labels: {
-                  color: '#dff7e9',
+                  color: '#cfe3d8',
                   boxWidth: 12,
                   boxHeight: 2,
                   usePointStyle: false,
@@ -269,11 +288,11 @@
                 },
               },
               tooltip: {
-                backgroundColor: '#060f0b',
-                borderColor: 'rgba(0,255,133,.34)',
+                backgroundColor: '#0b1310',
+                borderColor: 'rgba(61,216,138,.34)',
                 borderWidth: 1,
-                titleColor: '#00ff85',
-                bodyColor: '#dff7e9',
+                titleColor: '#3dd88a',
+                bodyColor: '#cfe3d8',
                 titleFont: { family: 'JetBrains Mono, monospace', size: 11 },
                 bodyFont: { family: 'JetBrains Mono, monospace', size: 11 },
                 padding: 10,
@@ -290,24 +309,24 @@
         if (latencyCanvas) {
           var latCtx = latencyCanvas.getContext('2d');
           var latFill = latCtx.createLinearGradient(0, 0, 0, 200);
-          latFill.addColorStop(0, 'rgba(77, 216, 255, 0.24)');
-          latFill.addColorStop(1, 'rgba(77, 216, 255, 0)');
+          latFill.addColorStop(0, 'rgba(86, 184, 212, 0.24)');
+          latFill.addColorStop(1, 'rgba(86, 184, 212, 0)');
 
-          new Chart(latCtx, {
+          window.__latencyChart = new Chart(latCtx, {
             type: 'line',
             data: {
               labels: labels,
               datasets: [{
                 label: 'LATENCY (MS)',
                 data: resourceData.map(function (d) { return d.latency_ms; }),
-                borderColor: '#4dd8ff',
+                borderColor: '#56b8d4',
                 backgroundColor: latFill,
                 borderWidth: 2,
                 tension: 0.32,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                pointHoverBackgroundColor: '#4dd8ff',
-                pointHoverBorderColor: '#02150c',
+                pointHoverBackgroundColor: '#56b8d4',
+                pointHoverBorderColor: '#071009',
                 fill: true,
                 spanGaps: true,
               }],
@@ -323,7 +342,7 @@
                 },
                 y: {
                   beginAtZero: true,
-                  ticks: { color: '#3f93ad', font: monoFont, callback: function (v) { return v + 'ms'; } },
+                  ticks: { color: '#4a8ba1', font: monoFont, callback: function (v) { return v + 'ms'; } },
                   grid: { color: gridColor },
                   border: { color: borderColor },
                 },
@@ -331,16 +350,16 @@
               plugins: {
                 legend: {
                   labels: {
-                    color: '#dff7e9', boxWidth: 12, boxHeight: 2,
+                    color: '#cfe3d8', boxWidth: 12, boxHeight: 2,
                     font: { family: 'JetBrains Mono, monospace', size: 10 },
                   },
                 },
                 tooltip: {
-                  backgroundColor: '#060f0b',
-                  borderColor: 'rgba(77,216,255,.4)',
+                  backgroundColor: '#0b1310',
+                  borderColor: 'rgba(86,184,212,.4)',
                   borderWidth: 1,
-                  titleColor: '#4dd8ff',
-                  bodyColor: '#dff7e9',
+                  titleColor: '#56b8d4',
+                  bodyColor: '#cfe3d8',
                   titleFont: { family: 'JetBrains Mono, monospace', size: 11 },
                   bodyFont: { family: 'JetBrains Mono, monospace', size: 11 },
                   padding: 10,
@@ -353,4 +372,101 @@
       })();
     </script>
   <% } %>
+
+  <script>
+    // Realtime halaman detail: ambil data terbaru berkala dan perbarui angka
+    // di tempat, tanpa reload penuh — supaya grafik tidak berkedip dan posisi
+    // scroll pengguna tidak hilang.
+    (function () {
+      var LIVE_INTERVAL_MS = 5000;
+      var CLIENT_ID = <%= item.id %>;
+      var dot = document.getElementById('live-indicator');
+
+      function setText(id, value) {
+        var el = document.getElementById(id);
+        if (el && value != null) el.textContent = value;
+      }
+
+      function usageBarHtml(percent) {
+        if (percent == null) return '<span class="meta">—</span>';
+        var cls = percent >= 90 ? 'usage-crit' : percent >= 75 ? 'usage-warn' : 'usage-ok';
+        var w = Math.min(percent, 100);
+        return '<span class="usage-cell"><span class="usage-bar">' +
+          '<span class="usage-bar-fill ' + cls + '" style="width:' + w + '%;"></span></span>' +
+          '<span class="usage-label">' + percent + '%</span></span>';
+      }
+
+      function latencyHtml(ms) {
+        if (ms == null) return '<span class="meta">—</span>';
+        var cls = ms < 100 ? 'lat-good' : ms < 300 ? 'lat-ok' : 'lat-bad';
+        return '<span class="latency ' + cls + '">' + ms + '<span class="unit">ms</span></span>';
+      }
+
+      function setHtml(id, html) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+      }
+
+      async function tick() {
+        try {
+          var res = await fetch('/client/' + CLIENT_ID + '/live', { headers: { 'Accept': 'application/json' } });
+          if (!res.ok) return;
+          var d = await res.json();
+
+          var badge = document.getElementById('live-status');
+          if (badge && d.status) {
+            badge.textContent = d.status.toUpperCase();
+            badge.className = 'badge badge-' + d.status;
+          }
+          setText('live-hostname', d.hostname || 'hostname belum diketahui');
+          setText('live-lastseen', d.lastSeenAt || 'never');
+          setText('live-private-ip', d.privateIp || '—');
+          setText('live-public-ip', d.publicIp || '—');
+
+          setHtml('live-latency', latencyHtml(d.status === 'up' ? d.lastLatencyMs : null));
+          if (d.latencyStats) {
+            setText('live-latency-sub', 'avg ' + d.latencyStats.avg + 'ms · ' + d.latencyStats.min + '–' + d.latencyStats.max + 'ms');
+          }
+
+          if (d.metric) {
+            setHtml('live-mem-bar', usageBarHtml(d.metric.memPercent));
+            if (d.metric.mem_total_mb != null) {
+              setText('live-mem-sub', (d.metric.mem_used_mb / 1024).toFixed(1) + ' GB / ' + (d.metric.mem_total_mb / 1024).toFixed(1) + ' GB');
+            }
+            setHtml('live-disk-bar', usageBarHtml(d.metric.diskPercent));
+            if (d.metric.disk_total_gb != null) {
+              setText('live-disk-sub', d.metric.disk_used_gb + ' GB / ' + d.metric.disk_total_gb + ' GB');
+            }
+            setText('live-load', d.metric.load_1m != null ? d.metric.load_1m : '—');
+            setText('live-load-sub', '5m ' + (d.metric.load_5m != null ? d.metric.load_5m : '—') +
+              ' · 15m ' + (d.metric.load_15m != null ? d.metric.load_15m : '—'));
+            setText('live-uptime', d.uptimeText);
+            setText('live-received', 'received ' + d.metric.received_at);
+          }
+
+          if (window.__resourceChart && d.metricHistory) {
+            var c = window.__resourceChart;
+            c.data.labels = d.metricHistory.map(function (x) { return x.received_at; });
+            c.data.datasets[0].data = d.metricHistory.map(function (x) {
+              return x.mem_total_mb ? Math.round((x.mem_used_mb / x.mem_total_mb) * 100) : null;
+            });
+            c.data.datasets[1].data = d.metricHistory.map(function (x) { return x.load_1m; });
+            c.update('none');
+          }
+          if (window.__latencyChart && d.metricHistory) {
+            var lc = window.__latencyChart;
+            lc.data.labels = d.metricHistory.map(function (x) { return x.received_at; });
+            lc.data.datasets[0].data = d.metricHistory.map(function (x) { return x.latency_ms; });
+            lc.update('none');
+          }
+
+          if (dot) { dot.style.background = 'var(--accent)'; dot.title = 'Live — diperbarui otomatis'; }
+        } catch (e) {
+          if (dot) { dot.style.background = 'var(--danger)'; dot.title = 'Gagal mengambil data terbaru'; }
+        }
+      }
+
+      setInterval(tick, LIVE_INTERVAL_MS);
+    })();
+  </script>
 <%- include('partials/layout-foot') %>

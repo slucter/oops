@@ -1,6 +1,19 @@
 <%- include('partials/layout-head', { title: (item ? 'Edit' : 'Add') + ' Client - Oops' }) %>
 <%- include('partials/navbar', { username: username }) %>
   <main>
+    <nav class="crumbs">
+      <a href="/">&larr; Dashboard</a>
+      <% if (item) { %>
+        <span class="sep">/</span>
+        <a href="/client/<%= item.id %>"><%= item.name %></a>
+        <span class="sep">/</span>
+        <span class="current">Edit</span>
+      <% } else { %>
+        <span class="sep">/</span>
+        <span class="current">Add client</span>
+      <% } %>
+    </nav>
+
     <div class="page-head">
       <div>
         <h1><%= item ? 'Edit client' : 'Add client' %></h1>
@@ -11,9 +24,6 @@
             Daftarkan client baru untuk mendapatkan command instalasi.
           <% } %>
         </div>
-      </div>
-      <div class="actions">
-        <a class="btn btn-ghost" href="/">&larr; Dashboard</a>
       </div>
     </div>
 

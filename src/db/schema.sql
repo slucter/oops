@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS clients (
   group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'up', 'down')),
   hostname TEXT,
+  private_ip TEXT,
+  public_ip TEXT,
   last_seen_at TEXT,
   last_latency_ms INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

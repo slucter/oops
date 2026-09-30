@@ -11,6 +11,8 @@
  */
 
 const WebSocket = require('ws');
+const os = require('os');
+const https = require('https');
 const { execSync } = require('child_process');
 const { RESOURCE_COMMAND, parseResourceOutput } = require('./resourceParser');
 
@@ -98,6 +100,7 @@ function scheduleReconnect() {
 
 function sendMetric() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  refreshPublicIp();
   try {
     const output = execSync(RESOURCE_COMMAND, { encoding: 'utf8', timeout: 10000 });
     const parsed = parseResourceOutput(output);
@@ -114,10 +117,57 @@ function sendMetric() {
       load15m: parsed.load15m,
       uptimeSeconds: parseUptimeSeconds(),
       hostname,
+      privateIp: getPrivateIp(),
+      publicIp: publicIpCache,
     }));
   } catch (err) {
     console.error('[agent] gagal kirim metric:', err.message);
   }
+}
+
+/**
+ * IP internal: alamat IPv4 non-loopback pertama dari interface aktif.
+ * Dibaca dari os.networkInterfaces() (bukan shell) supaya tidak bergantung
+ * pada `ip`/`ifconfig` yang belum tentu ada di image minimal.
+ */
+function getPrivateIp() {
+  try {
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) return net.address;
+      }
+    }
+  } catch {
+    // diabaikan: IP bukan data kritis, biar null saja
+  }
+  return null;
+}
+
+/**
+ * IP publik di-cache dan hanya di-refresh sesekali — memanggil layanan luar
+ * tiap siklus metrik (default 30 detik) boros dan bisa kena rate limit.
+ */
+let publicIpCache = null;
+let publicIpFetchedAt = 0;
+const PUBLIC_IP_TTL_MS = 30 * 60 * 1000;
+
+function refreshPublicIp() {
+  if (Date.now() - publicIpFetchedAt < PUBLIC_IP_TTL_MS) return;
+  publicIpFetchedAt = Date.now();
+
+  https.get('https://api.ipify.org?format=text', { timeout: 8000 }, (res) => {
+    if (res.statusCode !== 200) { res.resume(); return; }
+    let body = '';
+    res.setEncoding('utf8');
+    res.on('data', (c) => { body += c; if (body.length > 64) res.destroy(); });
+    res.on('end', () => {
+      const ip = body.trim();
+      if (/^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]{2,45})$/.test(ip)) publicIpCache = ip;
+    });
+  }).on('error', () => {
+    // offline / diblokir firewall: biarkan null, bukan kesalahan fatal
+  }).on('timeout', function () { this.destroy(); });
 }
 
 function parseUptimeSeconds() {

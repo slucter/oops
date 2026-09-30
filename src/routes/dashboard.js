@@ -28,4 +28,26 @@ router.get('/client/:id', (req, res) => {
   res.render('client-detail', { item: detail, username: req.session.username, formatUptime });
 });
 
+/**
+ * Data live untuk halaman detail: dipanggil berkala oleh browser supaya
+ * angka RAM/load/latency dan grafiknya ikut bergerak tanpa reload penuh.
+ */
+router.get('/client/:id/live', (req, res) => {
+  const detail = getClientDetail(req.params.id);
+  if (!detail) return res.status(404).json({ error: 'Client tidak ditemukan.' });
+
+  res.json({
+    status: detail.status,
+    hostname: detail.hostname,
+    privateIp: detail.privateIp,
+    publicIp: detail.publicIp,
+    lastSeenAt: detail.lastSeenAt,
+    lastLatencyMs: detail.lastLatencyMs,
+    latencyStats: detail.latencyStats,
+    metric: detail.metric,
+    metricHistory: detail.metricHistory,
+    uptimeText: detail.metric ? formatUptime(detail.metric.uptime_seconds) : '-',
+  });
+});
+
 module.exports = router;

@@ -27,5 +27,7 @@ function addColumnIfMissing(table, column, definition) {
 
 addColumnIfMissing('clients', 'last_latency_ms', 'INTEGER');
 addColumnIfMissing('client_metrics', 'latency_ms', 'INTEGER');
+addColumnIfMissing('clients', 'private_ip', 'TEXT');
+addColumnIfMissing('clients', 'public_ip', 'TEXT');
 
 module.exports = db;

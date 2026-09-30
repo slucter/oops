@@ -1,13 +1,16 @@
 <%- include('partials/layout-head', { title: 'Master Group - Oops' }) %>
 <%- include('partials/navbar', { username: username, active: 'master' }) %>
   <main>
+    <nav class="crumbs">
+      <a href="/">&larr; Dashboard</a>
+      <span class="sep">/</span>
+      <span class="current">Master &middot; Group</span>
+    </nav>
+
     <div class="page-head">
       <div>
         <h1>Master &middot; Group</h1>
         <div class="page-sub">Kelompokkan client yang terhubung ke dalam grup.</div>
-      </div>
-      <div class="actions">
-        <a class="btn btn-ghost" href="/">&larr; Dashboard</a>
       </div>
     </div>
 

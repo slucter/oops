@@ -14,7 +14,9 @@ const insertMetric = db.prepare(`
 const updateClientSeen = db.prepare(`
   UPDATE clients
   SET status = 'up', hostname = @hostname, last_seen_at = datetime('now'),
-      last_latency_ms = @latencyMs
+      last_latency_ms = @latencyMs,
+      private_ip = COALESCE(@privateIp, private_ip),
+      public_ip = COALESCE(@publicIp, public_ip)
   WHERE id = @id
 `);
 
@@ -48,7 +50,13 @@ function recordStatusChange(clientId, newStatus) {
 function recordMetric(clientId, payload) {
   const latencyMs = payload.latencyMs != null ? payload.latencyMs : null;
   recordStatusChange(clientId, 'up');
-  updateClientSeen.run({ id: clientId, hostname: payload.hostname || null, latencyMs });
+  updateClientSeen.run({
+    id: clientId,
+    hostname: payload.hostname || null,
+    latencyMs,
+    privateIp: payload.privateIp || null,
+    publicIp: payload.publicIp || null,
+  });
   insertMetric.run({
     clientId,
     memTotalMb: payload.memTotalMb,

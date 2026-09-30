@@ -34,6 +34,8 @@ function mapRow(row) {
     groupName: row.group_name || null,
     status: row.status,
     hostname: row.hostname,
+    privateIp: row.private_ip,
+    publicIp: row.public_ip,
     lastSeenAt: row.last_seen_at,
     lastLatencyMs: row.last_latency_ms,
     createdAt: row.created_at,

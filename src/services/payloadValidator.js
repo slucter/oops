@@ -1,8 +1,24 @@
 const MAX_HOSTNAME_LEN = 255;
 const MAX_NUMBER = 1e9; // batas akal sehat, tolak angka yang jelas tidak masuk akal
+const MAX_IP_LEN = 45; // cukup untuk IPv6 terpanjang
+
+// IPv4 / IPv6 sederhana. Sengaja longgar soal bentuk IPv6 (tidak memvalidasi
+// setiap aturan penyingkatan) tapi ketat soal karakter yang boleh muncul —
+// tujuannya mencegah string sembarangan masuk ke DB dan ke HTML, bukan
+// menjadi validator alamat IP yang sempurna.
+const IP_PATTERN = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]{2,45})$/;
 
 function isFiniteNumberOrNull(value) {
   return value === null || value === undefined || (typeof value === 'number' && Number.isFinite(value) && Math.abs(value) < MAX_NUMBER);
+}
+
+function normalizeIp(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string') return undefined; // undefined = invalid
+  const v = value.trim();
+  if (v === '') return null;
+  if (v.length > MAX_IP_LEN || !IP_PATTERN.test(v)) return undefined;
+  return v;
 }
 
 /**
@@ -34,6 +50,11 @@ function validateMetricPayload(payload) {
     }
   }
 
+  const privateIp = normalizeIp(payload.privateIp);
+  if (privateIp === undefined) return { valid: false, reason: 'field "privateIp" bukan alamat IP yang valid' };
+  const publicIp = normalizeIp(payload.publicIp);
+  if (publicIp === undefined) return { valid: false, reason: 'field "publicIp" bukan alamat IP yang valid' };
+
   return {
     valid: true,
     data: {
@@ -46,6 +67,8 @@ function validateMetricPayload(payload) {
       load15m: payload.load15m ?? null,
       uptimeSeconds: payload.uptimeSeconds ?? null,
       hostname: payload.hostname ?? null,
+      privateIp,
+      publicIp,
     },
   };
 }
