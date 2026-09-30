@@ -106,25 +106,27 @@ aksesnya, dan halaman tidak bisa diakses tanpa login.
 Tujuan: server tidak lagi didaftarkan lewat `servers.yaml`, tapi lewat form
 di dashboard, tersimpan di SQLite. Ini revisi lingkup atas permintaan
 pemilik projek (semula direncanakan tetap YAML).
-- [ ] Migrasi skema: tabel `servers` (lihat Model data), drop ketergantungan
+- [x] Migrasi skema: tabel `servers` (lihat Model data), drop ketergantungan
       ke `serverConfig.js`/YAML di seluruh kode (`statusChecker`, scheduler,
       dashboardData, sshClient — `via` sekarang FK bukan id string bebas)
-- [ ] Modul `serverStore.js` (ganti `serverConfig.js`): CRUD server ke SQLite,
+- [x] Modul `serverStore.js` (ganti `serverConfig.js`): CRUD server ke SQLite,
       validasi sama seperti sebelumnya (duplikat, via valid, no-cycle) tapi
       dicek terhadap tabel, bukan file
-- [ ] Route + form tambah server: name, group, host, port, user, has_docker,
+- [x] Route + form tambah server: name, group, host, port, user, has_docker,
       via (dropdown dari server yang sudah ada, exclude diri sendiri &
       keturunannya supaya tidak siklus), upload private key (`multer`)
-- [ ] Route edit & hapus server (hapus juga hapus file key terkait, dan
-      tolak hapus kalau masih jadi `via` server lain — atau set null dengan
-      konfirmasi)
-- [ ] File key ter-upload disimpan di `data/keys/<uuid>`, permission 600,
+- [x] Route edit & hapus server (hapus juga hapus file key terkait, dan
+      tolak hapus kalau masih jadi `via` server lain)
+- [x] File key ter-upload disimpan di `data/keys/<uuid>`, permission 600,
       folder ini di luar git (`.gitignore`)
-- [ ] Hapus `config/servers.yaml` & `servers.example.yaml` dari alur (tidak
+- [x] Hapus `config/servers.yaml` & `servers.example.yaml` dari alur (tidak
       dipakai lagi); update README
 Selesai kalau: server bisa ditambah/diedit/dihapus lewat browser tanpa
 sentuh file apa pun, termasuk upload key dan pilih jump host dari dropdown,
 dan scheduler tetap jalan mengecek server-server itu seperti sebelumnya.
+**Status: selesai, di-commit `a5c8fc8`. Diuji manual via curl (CRUD,
+validasi upload, anti-siklus, proteksi auth) — belum diuji ke SSH server
+nyata.**
 
 ### Tahap 2 — Jump host / ProxyJump · kecil-menengah
 Tujuan: server internal (contoh `user@10.10.10.10` di balik bastion) bisa
