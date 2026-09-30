@@ -1,0 +1,215 @@
+<%- include('partials/layout-head', { title: 'Link Share - Oops' }) %>
+<%- include('partials/navbar', { username: username }) %>
+  <main>
+    <nav class="crumbs">
+      <a href="/">&larr; Dashboard</a>
+      <span class="sep">/</span>
+      <span class="current">Link Share</span>
+    </nav>
+
+    <div class="page-head">
+      <div>
+        <h1>Link Share</h1>
+        <div class="page-sub">Bagikan tampilan monitoring tanpa memberi akses login.</div>
+      </div>
+    </div>
+
+    <% if (error) { %><div class="error"><%= error %></div><% } %>
+    <% if (notice) { %><div class="notice"><%= notice %></div><% } %>
+
+    <% if (tokenBaru) { %>
+      <div class="panel panel-pad" style="border-left:3px solid var(--accent); margin-bottom:1.2rem;">
+        <div style="color:var(--accent); font-weight:700; margin-bottom:.5rem;">
+          Link siap dibagikan · <%= tokenBaru.jumlah %> client
+        </div>
+        <div class="share-url-row">
+          <input type="text" id="url-baru" readonly value="<%= tokenBaru.url %>" />
+          <button type="button" class="btn-primary" id="salin-baru">Salin</button>
+        </div>
+        <div class="field-hint" style="margin-top:.5rem;">
+          Siapa pun yang memegang link ini bisa membukanya tanpa login. Token
+          tidak bisa dilihat lagi setelah halaman ini ditutup — kalau hilang,
+          cabut link ini lalu buat yang baru.
+        </div>
+      </div>
+    <% } %>
+
+    <h2>Buat link baru</h2>
+    <form method="post" action="/shares">
+      <div class="panel panel-pad">
+        <div class="settings-grid">
+          <div class="field">
+            <label for="label">Nama link (opsional)</label>
+            <input type="text" id="label" name="label" placeholder="mis. Laporan untuk klien Sulteng" />
+            <div class="field-hint">Ditampilkan di halaman share dan di daftar bawah</div>
+          </div>
+          <div class="field">
+            <label for="expires_minutes">Berlaku berapa menit?</label>
+            <input type="text" id="expires_minutes" name="expires_minutes" value="1440" inputmode="numeric" />
+            <div class="field-hint">
+              60 = 1 jam &middot; 1440 = 1 hari &middot; 10080 = 7 hari &middot; <b>0 = tanpa batas</b>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:1px; background:var(--line); margin:1.1rem 0;"></div>
+
+        <div style="display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.8rem;">
+          <b style="font-size:.8rem;">Pilih client yang dibagikan</b>
+          <span class="field-hint" id="hitung-pilih">0 dipilih</span>
+          <button type="button" class="btn-sm btn-ghost" id="pilih-semua" style="margin-left:auto;">Pilih semua</button>
+          <button type="button" class="btn-sm btn-ghost" id="hapus-semua">Kosongkan</button>
+        </div>
+
+        <%
+          const perGrup = {};
+          for (const c of clients) {
+            const g = c.groupName || 'Belum dikelompokkan';
+            (perGrup[g] = perGrup[g] || []).push(c);
+          }
+          const namaGrup = Object.keys(perGrup);
+        %>
+
+        <% if (namaGrup.length === 0) { %>
+          <div class="meta">Belum ada client untuk dibagikan.</div>
+        <% } %>
+
+        <% for (const g of namaGrup) { %>
+          <div class="share-grup">
+            <div class="share-grup-head">
+              <label class="check">
+                <input type="checkbox" class="grup-toggle" data-grup="<%= g %>" />
+                <span><%= g %></span>
+              </label>
+              <span class="count"><%= perGrup[g].length %></span>
+            </div>
+            <div class="share-grup-body">
+              <% for (const c of perGrup[g]) { %>
+                <label class="check">
+                  <input type="checkbox" name="client_ids" value="<%= c.id %>"
+                         class="client-cb" data-grup="<%= g %>" />
+                  <span><%= c.name %><% if (c.hostname) { %> <span class="meta">· <%= c.hostname %></span><% } %></span>
+                </label>
+              <% } %>
+            </div>
+          </div>
+        <% } %>
+      </div>
+
+      <div style="margin-top:1.2rem;">
+        <button type="submit" class="btn-primary">Buat link share</button>
+      </div>
+    </form>
+
+    <h2>Link aktif</h2>
+    <div class="panel">
+      <% if (shares.length === 0) { %>
+        <div class="panel-pad meta">Belum ada link share.</div>
+      <% } else { %>
+        <table>
+          <thead>
+            <tr>
+              <th>Nama</th>
+              <th>Isi</th>
+              <th>Dibuat</th>
+              <th>Berlaku sampai</th>
+              <th>Dibuka</th>
+              <th style="text-align:right;">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% for (const s of shares) { %>
+              <tr>
+                <td class="cell-name"><%= s.label || '(tanpa nama)' %></td>
+                <td class="meta">
+                  <% if (s.scope === 'client') { %>
+                    1 client · <%= s.client_name || '(sudah dihapus)' %>
+                  <% } else { %>
+                    <%= s.jumlah_client %> client
+                  <% } %>
+                </td>
+                <td class="meta num cell-time"><%= s.created_at %></td>
+                <td class="num cell-time">
+                  <% if (!s.expires_at) { %>
+                    <span class="share-tag tanpa-batas">tanpa batas</span>
+                  <% } else if (s.kedaluwarsa) { %>
+                    <span class="share-tag habis">kedaluwarsa</span>
+                  <% } else { %>
+                    <span class="meta"><%= s.expires_at %></span>
+                  <% } %>
+                </td>
+                <td class="num meta"><%= s.view_count %>&times;</td>
+                <td class="cell-actions">
+                  <div class="row-actions">
+                    <form method="post" action="/shares/<%= s.id %>/revoke"
+                          onsubmit="return confirm('Cabut link ini?\n\nSiapa pun yang memegangnya langsung tidak bisa membuka lagi. Tidak bisa dibatalkan.');">
+                      <button type="submit" class="btn-sm btn-danger">Cabut</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var cbs = Array.prototype.slice.call(document.querySelectorAll('.client-cb'));
+      var hitung = document.getElementById('hitung-pilih');
+
+      function perbarui() {
+        var n = cbs.filter(function (c) { return c.checked; }).length;
+        hitung.textContent = n + ' dipilih';
+        // Centang grup mengikuti anggotanya, supaya tidak menyesatkan saat
+        // sebagian anggota dicentang satu per satu.
+        document.querySelectorAll('.grup-toggle').forEach(function (g) {
+          var anggota = cbs.filter(function (c) { return c.dataset.grup === g.dataset.grup; });
+          var dicentang = anggota.filter(function (c) { return c.checked; }).length;
+          g.checked = dicentang > 0 && dicentang === anggota.length;
+          g.indeterminate = dicentang > 0 && dicentang < anggota.length;
+        });
+      }
+
+      cbs.forEach(function (c) { c.addEventListener('change', perbarui); });
+
+      document.querySelectorAll('.grup-toggle').forEach(function (g) {
+        g.addEventListener('change', function () {
+          cbs.filter(function (c) { return c.dataset.grup === g.dataset.grup; })
+             .forEach(function (c) { c.checked = g.checked; });
+          perbarui();
+        });
+      });
+
+      var semua = document.getElementById('pilih-semua');
+      if (semua) semua.addEventListener('click', function () {
+        cbs.forEach(function (c) { c.checked = true; }); perbarui();
+      });
+      var kosong = document.getElementById('hapus-semua');
+      if (kosong) kosong.addEventListener('click', function () {
+        cbs.forEach(function (c) { c.checked = false; }); perbarui();
+      });
+
+      perbarui();
+
+      var salin = document.getElementById('salin-baru');
+      if (salin) salin.addEventListener('click', function () {
+        var input = document.getElementById('url-baru');
+        input.select();
+        var selesai = function () {
+          salin.textContent = 'Tersalin ✓';
+          setTimeout(function () { salin.textContent = 'Salin'; }, 1800);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(input.value).then(selesai, function () {
+            try { document.execCommand('copy'); selesai(); } catch (e) { /* biar user salin manual */ }
+          });
+        } else {
+          try { document.execCommand('copy'); selesai(); } catch (e) { /* biar user salin manual */ }
+        }
+      });
+    })();
+  </script>
+<%- include('partials/layout-foot') %>

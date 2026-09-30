@@ -12,6 +12,8 @@ const groupRoutes = require('./routes/groups');
 const settingsRoutes = require('./routes/settings');
 const pushRoutes = require('./routes/push');
 const installRoutes = require('./routes/install');
+const shareRoutes = require('./routes/share');
+const shareAdminRoutes = require('./routes/shareAdmin');
 const wsServer = require('./ws/server');
 
 const app = express();
@@ -62,12 +64,19 @@ app.get('/sw.js', (req, res) => {
 // Aset publik lain (ikon notifikasi, script client).
 app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
 
+// Halaman share read-only: SENGAJA sebelum requireAuth, karena memang harus
+// bisa dibuka tanpa login. Pengamanannya ada pada token di URL, yang
+// divalidasi di dalam router itu sendiri. Router ini hanya berisi GET dan
+// tidak punya satu pun rute yang mengubah data.
+app.use(shareRoutes);
+
 app.use(authRoutes);
 app.use(requireAuth, dashboardRoutes);
 app.use(requireAuth, clientRoutes);
 app.use(requireAuth, groupRoutes);
 app.use(requireAuth, settingsRoutes);
 app.use(requireAuth, pushRoutes);
+app.use(requireAuth, shareAdminRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

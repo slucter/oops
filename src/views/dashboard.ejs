@@ -144,6 +144,9 @@
                       <button type="button" class="btn-sm btn-primary update-agent-btn"
                               data-id="<%= c.id %>" data-name="<%= c.name %>">Update</button>
                     <% } %>
+                    <button type="button" class="btn-sm btn-ghost btn-icon share-btn"
+                            data-id="<%= c.id %>" data-name="<%= c.name %>"
+                            title="Buat link share read-only untuk client ini">⇗</button>
                     <a class="btn btn-sm btn-ghost" href="/client/<%= c.id %>">Detail</a>
                     <a class="btn btn-sm btn-ghost" href="/clients/<%= c.id %>/edit">Edit</a>
                     <form method="post" action="/clients/<%= c.id %>/delete"
@@ -227,4 +230,5 @@
       }
     })();
   </script>
+<%- include('partials/share-dialog') %>
 <%- include('partials/layout-foot') %>

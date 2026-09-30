@@ -702,6 +702,97 @@
     }
     .banner-alert .count { font-weight: 700; color: var(--danger); }
 
+    /* ================= SHARE ================= */
+    .share-badge {
+      display: inline-flex; align-items: center; gap: .35rem;
+      padding: .25rem .6rem;
+      font-size: .64rem; font-weight: 700;
+      letter-spacing: .12em; text-transform: uppercase;
+      color: var(--info);
+      border: 1px solid rgba(86,184,212,.32);
+      background: rgba(86,184,212,.1);
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .share-exp {
+      color: var(--text-faint); font-size: .68rem;
+      margin-left: .6rem; white-space: nowrap;
+    }
+    .share-label-bar {
+      background: var(--panel-head);
+      border-bottom: 1px solid var(--line);
+      padding: .45rem 1.8rem;
+      color: var(--text-dim); font-size: .74rem;
+      letter-spacing: .04em;
+    }
+
+    .btn-icon { padding-left: .5rem; padding-right: .5rem; font-size: .8rem; line-height: 1; }
+
+    .share-url-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .share-url-row input {
+      flex: 1; min-width: 220px;
+      font-size: .74rem;
+      font-family: inherit;
+    }
+
+    .share-grup { border: 1px solid var(--line); border-radius: 4px; margin-bottom: .7rem; }
+    .share-grup-head {
+      display: flex; align-items: center; gap: .6rem;
+      padding: .5rem .8rem;
+      background: var(--panel-head);
+      border-bottom: 1px solid var(--line);
+    }
+    .share-grup-head .count { margin-left: auto; color: var(--text-faint); font-size: .7rem; }
+    .share-grup-body {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: .3rem .9rem; padding: .7rem .8rem;
+    }
+
+    .share-tag {
+      font-size: .62rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      padding: .1rem .45rem; border-radius: 999px; border: 1px solid;
+      white-space: nowrap;
+    }
+    .share-tag.tanpa-batas { color: var(--warn); border-color: rgba(219,179,82,.35); background: rgba(219,179,82,.1); }
+    .share-tag.habis { color: var(--text-faint); border-color: var(--line); }
+
+    /* ================= MODAL ================= */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 90;
+      background: rgba(0,0,0,.66);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.2rem;
+    }
+    .modal-backdrop[hidden] { display: none; }
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      width: 100%; max-width: 480px;
+      max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 18px 50px rgba(0,0,0,.5);
+    }
+    .modal-head {
+      display: flex; align-items: center; gap: .7rem;
+      padding: .8rem 1rem;
+      background: var(--panel-head);
+      border-bottom: 1px solid var(--line);
+      font-size: .82rem;
+    }
+    .modal-head b { color: var(--accent); }
+    .modal-close {
+      margin-left: auto; background: none; border: 0; cursor: pointer;
+      color: var(--text-dim); font-size: 1.25rem; line-height: 1;
+      padding: 0 .2rem;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 1rem; }
+    .modal-foot {
+      display: flex; gap: .55rem; flex-wrap: wrap;
+      padding: .8rem 1rem;
+      border-top: 1px solid var(--line);
+    }
+
     /* ================= HASIL HAPUS CLIENT ================= */
     .banner-ok, .banner-sisa {
       display: flex; align-items: flex-start; gap: 0.7rem;

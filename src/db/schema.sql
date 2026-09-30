@@ -107,3 +107,35 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   fail_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions (user_id);
+
+-- Link share read-only. Token di sini adalah SATU-SATUNYA pengaman halaman
+-- publik, jadi ia disimpan sebagai hash, bukan nilai aslinya: kalau database
+-- bocor, isinya tidak bisa langsung dipakai membuka halaman share.
+--
+-- `scope` menentukan apa yang boleh dilihat:
+--   'dashboard' -> daftar client (dibatasi oleh share_clients)
+--   'client'    -> satu client saja, ditunjuk oleh client_id
+CREATE TABLE IF NOT EXISTS shares (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL CHECK (scope IN ('dashboard', 'client')),
+  client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+  label TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- NULL berarti tidak pernah kedaluwarsa.
+  expires_at TEXT,
+  revoked_at TEXT,
+  last_viewed_at TEXT,
+  view_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_shares_aktif ON shares (revoked_at, expires_at);
+
+-- Client mana saja yang ikut dalam satu share berscope 'dashboard'.
+-- Disimpan eksplisit per client (bukan per grup) supaya share tidak
+-- diam-diam melebar saat ada client baru masuk ke grup yang sama.
+CREATE TABLE IF NOT EXISTS share_clients (
+  share_id INTEGER NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  PRIMARY KEY (share_id, client_id)
+);

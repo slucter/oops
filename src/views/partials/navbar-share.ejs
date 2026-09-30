@@ -1,0 +1,33 @@
+<%
+  // Navbar untuk halaman share read-only.
+  //
+  // Sengaja TIDAK memakai partials/navbar: navbar itu punya menu Master,
+  // dropdown profil, dan brand yang menaut ke "/" — semuanya mengarah ke
+  // halaman yang butuh login. Menampilkannya ke pengunjung share hanya
+  // menghasilkan tautan yang berujung ke halaman login.
+  //
+  // locals: label (opsional), expiresAt (opsional, string datetime UTC)
+  const _label = typeof label !== 'undefined' && label ? label : null;
+  const _exp = typeof expiresAt !== 'undefined' && expiresAt ? expiresAt : null;
+%>
+<header>
+  <span class="brand" style="cursor:default;">
+    <span class="brand-badge">&gt;_</span>
+    <span class="brand-text">
+      <span class="name"><b>O</b>OPS</span>
+      <span class="sub">Ops &amp; Performance Sentinel</span>
+    </span>
+  </span>
+
+  <nav class="nav-right">
+    <span class="share-badge" title="Halaman ini hanya bisa dilihat, tidak bisa diubah">
+      👁 View only
+    </span>
+    <% if (_exp) { %>
+      <span class="share-exp" data-expires="<%= _exp %>">&nbsp;</span>
+    <% } %>
+  </nav>
+</header>
+<% if (_label) { %>
+  <div class="share-label-bar"><%= _label %></div>
+<% } %>

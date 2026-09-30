@@ -1,0 +1,131 @@
+<%- include('partials/layout-head', { title: 'Monitoring - Oops' }) %>
+<%- include('partials/navbar-share', { label: label, expiresAt: expiresAt }) %>
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Connected clients</h1>
+        <div class="page-sub" id="refresh-indicator">&nbsp;</div>
+      </div>
+    </div>
+
+    <%
+      const groupNames = Object.keys(grouped);
+      let criticalCount = 0, warningCount = 0;
+      for (const g of groupNames) {
+        for (const c of grouped[g]) {
+          if (c.worstSeverity === 'critical') criticalCount++;
+          else if (c.worstSeverity === 'warning') warningCount++;
+        }
+      }
+    %>
+    <% if (criticalCount + warningCount > 0) { %>
+      <div class="banner-alert">
+        <span>⚠</span>
+        <span>
+          <span class="count"><%= criticalCount + warningCount %></span> client perlu perhatian
+          <% if (criticalCount) { %> &middot; <%= criticalCount %> critical<% } %>
+          <% if (warningCount) { %> &middot; <%= warningCount %> warning<% } %>
+        </span>
+      </div>
+    <% } %>
+
+    <% if (groupNames.length === 0) { %>
+      <div class="empty-state">
+        <span class="big">Tidak ada client</span>
+        Client yang dibagikan lewat link ini sudah tidak ada lagi.
+      </div>
+    <% } %>
+
+    <% for (const groupName of groupNames) { %>
+      <div class="group-label">
+        <%= groupName %>
+        <span class="count"><%= grouped[groupName].length %></span>
+      </div>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Alert</th>
+              <th>Hostname</th>
+              <th>IP</th>
+              <th>Status</th>
+              <th>Latency</th>
+              <th>RAM</th>
+              <th>Disk</th>
+              <th>Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% for (const c of grouped[groupName]) { %>
+              <tr data-client="<%= c.id %>">
+                <td class="cell-name">
+                  <a class="server-link" href="/share/<%= token %>/client/<%= c.id %>"><%= c.name %></a>
+                </td>
+                <td class="cell-alert">
+                  <% if (c.alerts && c.alerts.length) { %>
+                    <span class="alert-dot alert-<%= c.worstSeverity %>"
+                          title="<%= c.alerts.map(function(a){ return a.message; }).join(' | ') %>">
+                      ⚠ <%= c.alerts.length %>
+                    </span>
+                  <% } else { %>
+                    <span class="alert-dot alert-ok">OK</span>
+                  <% } %>
+                </td>
+                <td class="meta cell-host" title="<%= c.hostname || '' %>"><%= c.hostname || '—' %></td>
+                <td class="cell-ip">
+                  <% if (c.privateIp || c.publicIp) { %>
+                    <span class="ip-stack">
+                      <span class="ip-priv"><%= c.privateIp || '—' %></span>
+                      <% if (c.publicIp) { %><span class="ip-pub"><%= c.publicIp %></span><% } %>
+                    </span>
+                  <% } else { %>
+                    <span class="meta">—</span>
+                  <% } %>
+                </td>
+                <td class="cell-status"><span class="badge badge-<%= c.status %>"><%= c.status.toUpperCase() %></span></td>
+                <td class="num cell-latency"><%- include('partials/latency', { ms: c.status === 'up' ? c.lastLatencyMs : null }) %></td>
+                <td class="num cell-ram"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.memPercent : null }) %></td>
+                <td class="num cell-disk"><%- include('partials/usage-bar', { percent: c.metric ? c.metric.diskPercent : null }) %></td>
+                <td class="meta num cell-time"><%= c.lastSeenAt || 'never' %></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </main>
+
+  <script>
+    (function () {
+      var REFRESH_MS = 30000;
+      var secondsLeft = REFRESH_MS / 1000;
+      var indicator = document.getElementById('refresh-indicator');
+
+      setInterval(function () {
+        secondsLeft -= 1;
+        if (secondsLeft <= 0) { location.reload(); return; }
+        indicator.textContent = 'auto refresh in ' + secondsLeft + 's';
+      }, 1000);
+
+      // Hitung mundur masa berlaku link, supaya pengunjung tahu kapan
+      // halaman ini berhenti bisa dibuka — bukan tiba-tiba mati.
+      var exp = document.querySelector('.share-exp');
+      if (exp) {
+        var target = new Date(exp.getAttribute('data-expires').replace(' ', 'T') + 'Z');
+        var tick = function () {
+          var sisa = target - new Date();
+          if (sisa <= 0) { exp.textContent = 'link kedaluwarsa'; return; }
+          var m = Math.floor(sisa / 60000);
+          var h = Math.floor(m / 60);
+          var d = Math.floor(h / 24);
+          exp.textContent = d > 0 ? ('berlaku ' + d + ' hari lagi')
+            : h > 0 ? ('berlaku ' + h + ' jam lagi')
+            : ('berlaku ' + Math.max(1, m) + ' menit lagi');
+        };
+        tick();
+        setInterval(tick, 30000);
+      }
+    })();
+  </script>
+<%- include('partials/layout-foot') %>

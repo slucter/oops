@@ -1,0 +1,133 @@
+<%
+  // Dialog "buat link share" untuk satu client. Dipakai dashboard (tombol di
+  // tiap baris) dan halaman detail. Elemen pemicunya cukup punya kelas
+  // `share-btn` dengan data-id dan data-name.
+%>
+<div class="modal-backdrop" id="share-modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <span>Bagikan <b id="share-nama"></b></span>
+      <button type="button" class="modal-close" id="share-tutup" title="Tutup">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="meta" style="margin-top:0;">
+        Link read-only: penerima bisa melihat status, metrik, docker, dan port
+        client ini <b>tanpa login</b> — tapi tidak bisa mengubah apa pun.
+      </p>
+
+      <div class="field">
+        <label for="share-menit">Berlaku berapa menit?</label>
+        <input type="text" id="share-menit" value="1440" inputmode="numeric" />
+        <div class="field-hint">
+          60 = 1 jam &middot; 1440 = 1 hari &middot; 10080 = 7 hari &middot; <b>0 = tanpa batas</b>
+        </div>
+      </div>
+
+      <div id="share-hasil" hidden>
+        <div class="share-url-row">
+          <input type="text" id="share-url" readonly />
+          <button type="button" class="btn-primary" id="share-salin">Salin</button>
+        </div>
+        <div class="field-hint" style="margin-top:.5rem;">
+          Link tidak bisa ditampilkan lagi setelah dialog ini ditutup. Kalau
+          hilang, cabut lewat menu <b>Master &rarr; Link Share</b> lalu buat baru.
+        </div>
+      </div>
+
+      <div id="share-error" class="error" style="margin:.8rem 0 0;" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-primary" id="share-buat">Buat link</button>
+      <button type="button" class="btn-ghost" id="share-batal">Tutup</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var modal = document.getElementById('share-modal');
+    if (!modal) return;
+
+    var elNama = document.getElementById('share-nama');
+    var elMenit = document.getElementById('share-menit');
+    var elHasil = document.getElementById('share-hasil');
+    var elUrl = document.getElementById('share-url');
+    var elError = document.getElementById('share-error');
+    var btnBuat = document.getElementById('share-buat');
+    var idAktif = null;
+
+    function buka(id, nama) {
+      idAktif = id;
+      elNama.textContent = nama;
+      elHasil.hidden = true;
+      elError.hidden = true;
+      btnBuat.disabled = false;
+      btnBuat.textContent = 'Buat link';
+      modal.hidden = false;
+      elMenit.focus();
+      elMenit.select();
+    }
+
+    function tutup() { modal.hidden = true; idAktif = null; }
+
+    document.querySelectorAll('.share-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        buka(b.getAttribute('data-id'), b.getAttribute('data-name'));
+      });
+    });
+
+    document.getElementById('share-tutup').addEventListener('click', tutup);
+    document.getElementById('share-batal').addEventListener('click', tutup);
+    modal.addEventListener('click', function (e) { if (e.target === modal) tutup(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !modal.hidden) tutup();
+    });
+
+    btnBuat.addEventListener('click', function () {
+      if (!idAktif) return;
+      elError.hidden = true;
+      btnBuat.disabled = true;
+      btnBuat.textContent = 'Membuat…';
+
+      var body = new URLSearchParams();
+      body.set('expires_minutes', elMenit.value);
+
+      fetch('/clients/' + idAktif + '/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: body.toString()
+      })
+        .then(function (r) { return r.json().catch(function () { return { error: 'Balasan server tidak terbaca.' }; }); })
+        .then(function (data) {
+          if (data.error) throw new Error(data.error);
+          elUrl.value = data.url;
+          elHasil.hidden = false;
+          btnBuat.textContent = 'Buat link lagi';
+          btnBuat.disabled = false;
+          elUrl.select();
+        })
+        .catch(function (err) {
+          elError.textContent = err.message;
+          elError.hidden = false;
+          btnBuat.disabled = false;
+          btnBuat.textContent = 'Buat link';
+        });
+    });
+
+    document.getElementById('share-salin').addEventListener('click', function () {
+      var b = this;
+      elUrl.select();
+      var selesai = function () {
+        b.textContent = 'Tersalin ✓';
+        setTimeout(function () { b.textContent = 'Salin'; }, 1800);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(elUrl.value).then(selesai, function () {
+          try { document.execCommand('copy'); selesai(); } catch (e) { /* salin manual */ }
+        });
+      } else {
+        try { document.execCommand('copy'); selesai(); } catch (e) { /* salin manual */ }
+      }
+    });
+  })();
+</script>
