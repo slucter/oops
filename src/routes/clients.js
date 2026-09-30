@@ -3,6 +3,7 @@ const clientStore = require('../services/clientStore');
 const groupStore = require('../services/groupStore');
 const wsServer = require('../ws/server');
 const agentVersion = require('../services/agentVersion');
+const optimizeJobs = require('../services/optimizeJobs');
 
 const router = express.Router();
 
@@ -194,6 +195,43 @@ router.post('/clients/:id/update-agent', async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
+});
+
+/**
+ * Mulai optimasi untuk satu atau beberapa client.
+ *
+ * Membalas SEGERA dengan id job, tidak menunggu optimasinya selesai.
+ * Optimasi bisa memakan belasan menit (journal 3.5GB, cache docker 2GB) —
+ * jauh melewati timeout nginx yang bawaannya 60 detik. Kemajuannya diambil
+ * lewat GET /optimize/:jobId.
+ */
+router.post('/optimize', (req, res) => {
+  const mentah = req.body.client_ids;
+  const daftar = (Array.isArray(mentah) ? mentah : mentah ? [mentah] : [])
+    .map(Number)
+    .filter(Number.isInteger);
+
+  const valid = daftar.filter((id) => clientStore.getClientById(id));
+  if (valid.length === 0) {
+    return res.status(400).json({ error: 'Pilih minimal satu client.' });
+  }
+
+  const job = optimizeJobs.buatJob(valid, !!req.body.docker);
+  // Sengaja tanpa await: job berjalan di latar, permintaan ini langsung selesai.
+  optimizeJobs.jalankan(job).catch((err) => {
+    console.error('[optimize] job gagal:', err.message);
+  });
+
+  res.json({ ok: true, jobId: job.id, jumlah: valid.length });
+});
+
+/** Kemajuan job optimasi — dipanggil berkala oleh dashboard. */
+router.get('/optimize/:jobId', (req, res) => {
+  const job = optimizeJobs.getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job tidak ditemukan atau sudah kedaluwarsa.' });
+  }
+  res.json(optimizeJobs.ringkas(job));
 });
 
 module.exports = router;

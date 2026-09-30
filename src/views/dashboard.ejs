@@ -34,6 +34,25 @@
       </div>
     <% } %>
 
+    <div class="pick-bar" id="pick-bar" hidden>
+      <span><b id="pick-jumlah">0</b> client dipilih</span>
+      <label class="check" style="margin-left:.4rem;">
+        <input type="checkbox" id="opt-docker" />
+        <span>Sekalian bersihkan cache &amp; image Docker yang tak terpakai</span>
+      </label>
+      <button type="button" class="btn-primary" id="opt-mulai" style="margin-left:auto;">⚡ Optimize</button>
+      <button type="button" class="btn-ghost btn-sm" id="pick-batal">Batal</button>
+    </div>
+
+    <div class="panel panel-pad" id="opt-panel" hidden style="margin-bottom:1.1rem;">
+      <div class="opt-head">
+        <span class="opt-judul">Optimasi berjalan</span>
+        <span class="meta" id="opt-ringkas"></span>
+      </div>
+      <div id="opt-daftar" class="opt-daftar"></div>
+      <div class="field-hint" id="opt-catatan" style="margin-top:.7rem;" hidden></div>
+    </div>
+
     <% if (dihapus) { %>
       <% if (adaSisa) { %>
         <div class="banner-sisa">
@@ -83,6 +102,7 @@
         <table>
           <thead>
             <tr>
+              <th class="cell-pick"><input type="checkbox" class="pick-grup" data-grup="<%= groupName %>" title="Pilih semua di grup ini" /></th>
               <th>Client</th>
               <th>Alert</th>
               <th>Hostname</th>
@@ -98,7 +118,12 @@
           </thead>
           <tbody>
             <% for (const c of grouped[groupName]) { %>
-              <tr>
+              <tr data-client="<%= c.id %>">
+                <td class="cell-pick">
+                  <input type="checkbox" class="pick-client" value="<%= c.id %>"
+                         data-grup="<%= groupName %>" data-nama="<%= c.name %>"
+                         <%= c.status === 'up' ? '' : 'disabled title="Client tidak terkoneksi"' %> />
+                </td>
                 <td class="cell-name"><a class="server-link" href="/client/<%= c.id %>"><%= c.name %></a></td>
                 <td>
                   <% if (c.alerts && c.alerts.length) { %>
@@ -221,6 +246,71 @@
         });
       });
 
+      // ---------- Pilih client & Optimize ----------
+      // Panel kemajuan & pemantauan job ada di partial optimize-js, dipakai
+      // bersama halaman detail supaya tidak ada dua salinan yang menyimpang.
+      var picks = Array.prototype.slice.call(document.querySelectorAll('.pick-client'));
+      var pickBar = document.getElementById('pick-bar');
+      var pickJumlah = document.getElementById('pick-jumlah');
+      var optMulai = document.getElementById('opt-mulai');
+
+      function terpilih() { return picks.filter(function (p) { return p.checked; }); }
+
+      function perbaruiPick() {
+        var n = terpilih().length;
+        pickJumlah.textContent = n;
+        pickBar.hidden = n === 0;
+        document.querySelectorAll('.pick-grup').forEach(function (g) {
+          var anggota = picks.filter(function (p) { return p.dataset.grup === g.dataset.grup && !p.disabled; });
+          var dicentang = anggota.filter(function (p) { return p.checked; }).length;
+          g.checked = dicentang > 0 && dicentang === anggota.length;
+          g.indeterminate = dicentang > 0 && dicentang < anggota.length;
+        });
+      }
+
+      picks.forEach(function (p) { p.addEventListener('change', perbaruiPick); });
+      document.querySelectorAll('.pick-grup').forEach(function (g) {
+        g.addEventListener('change', function () {
+          picks.filter(function (p) { return p.dataset.grup === g.dataset.grup && !p.disabled; })
+               .forEach(function (p) { p.checked = g.checked; });
+          perbaruiPick();
+        });
+      });
+
+      var pickBatal = document.getElementById('pick-batal');
+      if (pickBatal) pickBatal.addEventListener('click', function () {
+        picks.forEach(function (p) { p.checked = false; });
+        perbaruiPick();
+      });
+
+      if (optMulai) optMulai.addEventListener('click', function () {
+        var dipilih = terpilih();
+        if (dipilih.length === 0) return;
+        var pakaiDocker = document.getElementById('opt-docker').checked;
+        var nama = dipilih.map(function (p) { return p.dataset.nama; }).join(', ');
+
+        if (!confirm('Optimize ' + dipilih.length + ' client?\n\n' + nama
+          + '\n\nYang dibersihkan: journal systemd (dipangkas, bukan dihapus), cache paket, '
+          + 'file /tmp lama, dan log rotasi lama.'
+          + (pakaiDocker ? '\nTermasuk cache build & image Docker yang tak terpakai.' : '')
+          + '\n\nData aplikasi tidak disentuh dan tidak ada service yang direstart.')) return;
+
+        // Tahan auto-refresh: reload di tengah akan memutus pemantauan.
+        updating++;
+        window.oopsOptimize(
+          dipilih.map(function (p) { return p.value; }),
+          pakaiDocker,
+          optMulai,
+          function () {
+            updating--;
+            // Muat ulang supaya angka disk di tabel ikut terbarui.
+            setTimeout(function () { location.reload(); }, 6000);
+          }
+        );
+      });
+
+      perbaruiPick();
+
       var allBtn = document.getElementById('update-all-btn');
       if (allBtn) {
         allBtn.addEventListener('click', function () {
@@ -230,5 +320,6 @@
       }
     })();
   </script>
+<%- include('partials/optimize-js') %>
 <%- include('partials/share-dialog') %>
 <%- include('partials/layout-foot') %>

@@ -19,9 +19,23 @@
       <div class="actions">
         <span class="live-dot" id="live-indicator" title="Data diperbarui otomatis"></span>
         <span class="badge badge-<%= item.status %>" id="live-status"><%= item.status.toUpperCase() %></span>
+        <% if (item.status === 'up') { %>
+          <button type="button" class="btn btn-ghost" id="opt-satu"
+                  data-id="<%= item.id %>" data-name="<%= item.name %>"
+                  title="Bersihkan cache, journal, dan file sementara di server ini">⚡ Optimize</button>
+        <% } %>
         <button type="button" class="btn btn-ghost share-btn" data-id="<%= item.id %>" data-name="<%= item.name %>" title="Buat link share read-only">⇗ Share</button>
         <a class="btn btn-ghost" href="/clients/<%= item.id %>/edit">Edit</a>
       </div>
+    </div>
+
+    <div class="panel panel-pad" id="opt-panel" hidden style="margin-bottom:1.1rem;">
+      <div class="opt-head">
+        <span class="opt-judul">Optimasi berjalan</span>
+        <span class="meta" id="opt-ringkas"></span>
+      </div>
+      <div id="opt-daftar" class="opt-daftar"></div>
+      <div class="field-hint" id="opt-catatan" style="margin-top:.7rem;" hidden></div>
     </div>
 
     <div class="ip-row">
@@ -519,5 +533,25 @@
       setInterval(tick, LIVE_INTERVAL_MS);
     })();
   </script>
+<%- include('partials/optimize-js') %>
+<script id=opt-satu-handler>
+  (function () {
+    var b = document.getElementById('opt-satu');
+    if (!b) return;
+    b.addEventListener('click', function () {
+      if (!confirm('Optimize  + b.dataset.name + ?
+
+'
+        + 'Yang dibersihkan: journal systemd (dipangkas, bukan dihapus), cache paket, '
+        + 'file /tmp lama, dan log rotasi lama.
+
+'
+        + 'Data aplikasi tidak disentuh dan tidak ada service yang direstart.')) return;
+      window.oopsOptimize([b.dataset.id], false, b, function () {
+        setTimeout(function () { location.reload(); }, 6000);
+      });
+    });
+  })();
+</script>
 <%- include('partials/share-dialog') %>
 <%- include('partials/layout-foot') %>

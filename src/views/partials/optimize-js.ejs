@@ -1,0 +1,151 @@
+<%
+  // Logika panel optimasi: dipakai dashboard (banyak client) dan halaman
+  // detail (satu client). Dijadikan partial supaya tidak ada dua salinan
+  // yang bisa diam-diam menyimpang.
+  //
+  // Halaman yang memakainya harus menyediakan elemen: #opt-panel,
+  // #opt-daftar, #opt-ringkas, #opt-catatan. Pemicunya memanggil
+  // window.oopsOptimize(daftarClientId, pakaiDocker, tombol).
+%>
+<script>
+  (function () {
+    var optPanel = document.getElementById('opt-panel');
+    if (!optPanel) return;
+
+    var optDaftar = document.getElementById('opt-daftar');
+    var optRingkas = document.getElementById('opt-ringkas');
+    var optCatatan = document.getElementById('opt-catatan');
+
+    function ukuran(b) {
+      if (b == null) return '—';
+      if (b < 1024) return b + ' B';
+      var u = ['KB', 'MB', 'GB', 'TB'], i = -1, n = b;
+      do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+      return n.toFixed(n >= 10 || i === 0 ? 0 : 1) + ' ' + u[i];
+    }
+
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = s == null ? '' : s;
+      return d.innerHTML;
+    }
+
+    function gambar(data) {
+      optRingkas.textContent = data.jumlahSelesai + ' dari ' + data.jumlah + ' selesai'
+        + (data.totalHematBytes ? ' · total hemat ' + ukuran(data.totalHematBytes) : '');
+
+      optDaftar.innerHTML = data.target.map(function (t) {
+        var ikon = t.status === 'selesai' ? '✓' : t.status === 'gagal' ? '✕'
+          : t.status === 'dilewati' ? '—' : t.status === 'berjalan' ? '⟳' : '·';
+        var kanan;
+        if (t.status === 'selesai') {
+          kanan = '<b class="opt-hemat">' + (t.hematBytes ? '−' + ukuran(t.hematBytes) : 'sudah bersih') + '</b>';
+          if (t.memTersediaMb != null && t.memTotalMb != null) {
+            kanan += '<span class="opt-mem">RAM tersedia '
+              + (Math.round(t.memTersediaMb / 1024 * 10) / 10) + ' / '
+              + (Math.round(t.memTotalMb / 1024 * 10) / 10) + ' GB</span>';
+          }
+        } else if (t.status === 'berjalan') {
+          kanan = '<span class="opt-langkah">' + esc(t.langkahSekarang || 'menyiapkan…')
+            + (t.total ? ' (' + t.nomor + '/' + t.total + ')' : '') + '</span>';
+        } else if (t.status === 'gagal' || t.status === 'dilewati') {
+          kanan = '<span class="opt-pesan">' + esc(t.pesan || '') + '</span>';
+        } else {
+          kanan = '<span class="opt-langkah">menunggu giliran</span>';
+        }
+
+        var rincian = '';
+        if (t.status === 'selesai') {
+          var baris = (t.langkah || []).map(function (l) {
+            return '<li class="' + (l.ok ? 'ok' : 'gagal') + '">' + esc(l.nama) + '</li>';
+          }).join('');
+          if (t.dilewati && t.dilewati.length) {
+            baris += '<li class="lewat">Dilewati (perlu sudo): ' + t.dilewati.map(esc).join(', ') + '</li>';
+          }
+          if (baris) rincian = '<ul class="opt-rincian">' + baris + '</ul>';
+        }
+
+        return '<div class="opt-baris st-' + t.status + '">'
+          + '<span class="opt-ikon">' + ikon + '</span>'
+          + '<span class="opt-nama">' + esc(t.nama) + '</span>'
+          + '<span class="opt-kanan">' + kanan + '</span>'
+          + rincian + '</div>';
+      }).join('');
+
+      if (data.selesai && data.target.some(function (t) { return t.butuhSudo; })) {
+        optCatatan.innerHTML = 'Sebagian langkah dilewati karena agent tidak punya sudo tanpa kata sandi. '
+          + 'Untuk membersihkan journal systemd dan cache paket — biasanya bagian terbesar — '
+          + 'izinkan user agent menjalankan perintah itu lewat sudoers.';
+        optCatatan.hidden = false;
+      }
+    }
+
+    /**
+     * Pantau job sampai selesai.
+     *
+     * Gangguan jaringan sesaat tidak menghentikan pemantauan: job tetap
+     * berjalan di server. Baru menyerah setelah gagal berkali-kali berturut,
+     * dan pesannya menegaskan optimasinya sendiri tidak ikut berhenti.
+     */
+    function pantau(jobId, selesaiCb) {
+      var gagalBerturut = 0;
+      var timer = setInterval(function () {
+        fetch('/optimize/' + jobId, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) {
+            if (r.status === 404) throw new Error('habis');
+            return r.json();
+          })
+          .then(function (data) {
+            gagalBerturut = 0;
+            gambar(data);
+            if (data.selesai) {
+              clearInterval(timer);
+              selesaiCb(null);
+            }
+          })
+          .catch(function (err) {
+            gagalBerturut++;
+            if (err.message === 'habis' || gagalBerturut >= 10) {
+              clearInterval(timer);
+              optCatatan.textContent = err.message === 'habis'
+                ? 'Job sudah kedaluwarsa dari memori server. Optimasinya sendiri tetap dijalankan.'
+                : 'Koneksi ke server terputus. Optimasi tetap berjalan di server target.';
+              optCatatan.hidden = false;
+              selesaiCb(err);
+            }
+          });
+      }, 2000);
+    }
+
+    /** Dipanggil halaman: mulai optimasi untuk daftar client id. */
+    window.oopsOptimize = function (clientIds, pakaiDocker, tombol, onSelesai) {
+      var body = new URLSearchParams();
+      clientIds.forEach(function (id) { body.append('client_ids', id); });
+      if (pakaiDocker) body.set('docker', '1');
+
+      var labelAwal = tombol ? tombol.textContent : '';
+      if (tombol) { tombol.disabled = true; tombol.textContent = 'Menjalankan…'; }
+      optCatatan.hidden = true;
+      optPanel.hidden = false;
+
+      fetch('/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: body.toString()
+      })
+        .then(function (r) { return r.json().catch(function () { return { error: 'Balasan server tidak terbaca.' }; }); })
+        .then(function (data) {
+          if (data.error) throw new Error(data.error);
+          pantau(data.jobId, function () {
+            if (tombol) { tombol.disabled = false; tombol.textContent = labelAwal; }
+            if (onSelesai) onSelesai();
+          });
+        })
+        .catch(function (err) {
+          optDaftar.innerHTML = '<div class="error" style="margin:0;">' + esc(err.message) + '</div>';
+          if (tombol) { tombol.disabled = false; tombol.textContent = labelAwal; }
+          if (onSelesai) onSelesai(err);
+        });
+    };
+  })();
+</script>

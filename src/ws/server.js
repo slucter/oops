@@ -4,7 +4,13 @@ const clientStore = require('../services/clientStore');
 const clientDataService = require('../services/clientDataService');
 const { validateMetricPayload, validateCommandResultPayload, validateUpdateResultPayload } = require('../services/payloadValidator');
 
-const MAX_MESSAGE_BYTES = 8 * 1024;
+// Batas ukuran pesan dari agent. 8 KB cukup untuk metrik dan balasan biasa,
+// tapi hasil optimasi membawa rincian per langkah: dengan batas validator
+// (30 langkah, nama 120 char, pesan 300 char) satu balasan sah bisa mencapai
+// ~17 KB. Batas 8 KB akan memutus agent yang jujur, jadi 32 KB dipakai —
+// masih jauh dari cukup besar untuk menjadi masalah memori, dan validator
+// tetap memotong isinya setelah itu.
+const MAX_MESSAGE_BYTES = 32 * 1024;
 const STALE_THRESHOLD_SECONDS = Number(process.env.CLIENT_STALE_SECONDS || 90);
 const STALE_CHECK_INTERVAL_MS = 15000;
 const COMMAND_TIMEOUT_MS = 10000;
@@ -23,6 +29,8 @@ const pendingCommands = new Map();
 const pendingUpdates = new Map();
 // requestId -> { resolve, timer }, permintaan uninstall yang menunggu balasan.
 const pendingUninstalls = new Map();
+// requestId -> { resolve, onProgress, timer, ... }, optimasi yang menunggu balasan.
+const pendingOptimize = new Map();
 // clientId -> latency RTT terakhir (ms) dari ping/pong WebSocket. Hanya di
 // memori: nilainya ikut disimpan ke DB saat payload metrik berikutnya masuk,
 // supaya tidak bikin baris/tabel sendiri untuk angka yang berubah terus.
@@ -181,6 +189,33 @@ function handleMessage(clientId, raw) {
     return;
   }
 
+  if (msg.type === 'optimize_progress') {
+    const p = pendingOptimize.get(msg.id);
+    if (p && p.onProgress) {
+      // Tiap kabar kemajuan memperpanjang timeout: selama agent masih
+      // melapor, ia jelas masih bekerja. Tanpa ini, langkah tunggal yang
+      // lama (journal 3.5GB) bisa menembus batas waktu meski sehat.
+      clearTimeout(p.timer);
+      p.timer = setTimeout(p.onTimeout, p.timeoutMs);
+      try {
+        p.onProgress({ nomor: Number(msg.nomor) || 0, total: Number(msg.total) || 0, nama: typeof msg.nama === 'string' ? msg.nama.slice(0, 120) : null });
+      } catch {
+        // kabar kemajuan tidak boleh menjatuhkan koneksi
+      }
+    }
+    return;
+  }
+
+  if (msg.type === 'optimize_result') {
+    const p = pendingOptimize.get(msg.id);
+    if (p) {
+      clearTimeout(p.timer);
+      pendingOptimize.delete(msg.id);
+      p.resolve(validateOptimizeResult(msg));
+    }
+    return;
+  }
+
   if (msg.type === 'uninstall_result') {
     const pending = pendingUninstalls.get(msg.id);
     if (pending) {
@@ -297,9 +332,86 @@ function requestUninstall(clientId) {
   });
 }
 
+/**
+ * Minta agent menjalankan optimasi.
+ *
+ * **Tidak pernah melempar** untuk kegagalan yang wajar — selalu mengembalikan
+ * { ok, ... } supaya satu client bermasalah tidak menghentikan job untuk
+ * client lain.
+ *
+ * `onProgress` dipanggil tiap agent melapor, dan tiap laporan memperpanjang
+ * timeout. Optimasi bisa memakan belasan menit di server dengan journal atau
+ * cache docker besar.
+ */
+function requestOptimize(clientId, sertakanDocker, onProgress, timeoutMs) {
+  const ws = activeConnections.get(clientId);
+  if (!ws || ws.readyState !== ws.OPEN) {
+    return Promise.resolve({ ok: false, pesan: 'Client tidak sedang terkoneksi.' });
+  }
+
+  const id = `${clientId}-opt-${Date.now()}`;
+  const batas = Number(timeoutMs) || 15 * 60 * 1000;
+
+  return new Promise((resolve) => {
+    const onTimeout = () => {
+      pendingOptimize.delete(id);
+      resolve({ ok: false, pesan: 'Agent berhenti melapor — optimasi mungkin masih berjalan di server itu.' });
+    };
+    const entry = {
+      resolve,
+      onProgress,
+      onTimeout,
+      timeoutMs: batas,
+      timer: setTimeout(onTimeout, batas),
+    };
+    pendingOptimize.set(id, entry);
+
+    try {
+      ws.send(JSON.stringify({ type: 'optimize', id, docker: !!sertakanDocker }));
+    } catch (err) {
+      clearTimeout(entry.timer);
+      pendingOptimize.delete(id);
+      resolve({ ok: false, pesan: `Gagal mengirim perintah: ${err.message}` });
+    }
+  });
+}
+
+/**
+ * Bersihkan hasil optimasi dari agent sebelum dipakai.
+ *
+ * Isinya datang dari kode yang berjalan di mesin lain dan akan ditampilkan di
+ * dashboard, jadi tipe dan panjangnya dibatasi di sini — bukan dipercaya
+ * apa adanya.
+ */
+function validateOptimizeResult(msg) {
+  const angka = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+  const teks = (v, n) => (typeof v === 'string' ? v.slice(0, n) : null);
+
+  return {
+    ok: msg.ok !== false,
+    pesan: teks(msg.pesan, 500),
+    hematBytes: angka(msg.hematBytes),
+    butuhSudo: !!msg.butuhSudo,
+    dockerTersedia: !!msg.dockerTersedia,
+    memTotalMb: angka(msg.memTotalMb),
+    memTersediaMb: angka(msg.memTersediaMb),
+    memCacheMb: angka(msg.memCacheMb),
+    langkah: Array.isArray(msg.langkah)
+      ? msg.langkah.slice(0, 30).map((l) => ({
+        nama: teks(l && l.nama, 120) || '(tanpa nama)',
+        ok: !!(l && l.ok),
+        pesan: teks(l && l.pesan, 300),
+      }))
+      : [],
+    dilewati: Array.isArray(msg.dilewati)
+      ? msg.dilewati.slice(0, 30).map((d) => teks(d, 120)).filter(Boolean)
+      : [],
+  };
+}
+
 function isClientConnected(clientId) {
   const ws = activeConnections.get(clientId);
   return !!ws && ws.readyState === ws.OPEN;
 }
 
-module.exports = { attach, requestCommand, requestAgentUpdate, requestUninstall, isClientConnected };
+module.exports = { attach, requestCommand, requestAgentUpdate, requestUninstall, requestOptimize, isClientConnected };

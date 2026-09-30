@@ -104,6 +104,10 @@ function connect() {
     }
     if (msg.type === 'uninstall_agent' && msg.id) {
       handleUninstallCommand(msg.id);
+      return;
+    }
+    if (msg.type === 'optimize' && msg.id) {
+      handleOptimize(msg.id, !!msg.docker);
     }
   });
 
@@ -232,6 +236,186 @@ function handleCommand(id, command) {
     const errorMessage = err.stderr ? err.stderr.toString() : err.message;
     ws.send(JSON.stringify({ type: 'command_result', id, command, output: null, errorMessage }));
   }
+}
+
+// ===================== Optimasi =====================
+
+const fsMod = require('fs');
+
+/** Byte terpakai pada / — dipakai mengukur hasil optimasi, bukan klaim. */
+function diskTerpakai() {
+  try {
+    const out = execSync("df -B1 --output=used / 2>/dev/null | tail -1", { encoding: 'utf8', timeout: 10000 });
+    const n = parseInt(out.trim(), 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function memInfo() {
+  const hasil = {};
+  try {
+    for (const baris of fsMod.readFileSync('/proc/meminfo', 'utf8').split('\n')) {
+      const [k, v] = baris.split(':');
+      if (['MemTotal', 'MemAvailable', 'Cached', 'Buffers', 'SReclaimable'].includes(k)) {
+        hasil[k] = parseInt(v.trim(), 10);
+      }
+    }
+  } catch {
+    // /proc tidak tersedia; biarkan kosong
+  }
+  return hasil;
+}
+
+function punya(cmd) {
+  try {
+    execSync(`command -v ${cmd}`, { stdio: 'pipe', timeout: 8000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Apakah sudo bisa dipakai tanpa kata sandi? Diperiksa dengan -n supaya tidak menggantung. */
+function sudoTanpaSandi() {
+  if (process.getuid && process.getuid() === 0) return true;
+  if (!punya('sudo')) return false;
+  try {
+    execSync('sudo -n true', { stdio: 'pipe', timeout: 8000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Langkah yang tidak menyentuh data aplikasi dan tidak merestart apa pun. */
+function langkahAman() {
+  const l = [];
+  // Journal systemd sering jadi pemakan disk terbesar yang tidak disadari.
+  // Dipangkas ke 200M, bukan dihapus: riwayat terbaru tetap ada.
+  if (punya('journalctl')) l.push(['journal systemd dipangkas ke 200M', 'journalctl --vacuum-size=200M', true]);
+  if (punya('apt-get')) l.push(['cache apt dibersihkan', 'apt-get clean', true]);
+  else if (punya('yum')) l.push(['cache yum dibersihkan', 'yum clean all', true]);
+  else if (punya('dnf')) l.push(['cache dnf dibersihkan', 'dnf clean all', true]);
+  else if (punya('apk')) l.push(['cache apk dibersihkan', 'rm -rf /var/cache/apk/*', true]);
+
+  // Batas 7 hari, bukan semua: proses yang berjalan bisa memakai file /tmp baru.
+  l.push(['file /tmp lebih tua dari 7 hari dihapus', 'find /tmp -mindepth 1 -atime +7 -delete 2>/dev/null; true', false]);
+  l.push(['log rotasi lama (>30 hari) dihapus',
+    "find /var/log -type f \\( -name '*.gz' -o -name '*.[0-9]' -o -name '*.old' \\) -mtime +30 -delete 2>/dev/null; true", true]);
+  l.push(['cache thumbnail/pip/npm milik user dibersihkan',
+    'rm -rf ~/.cache/thumbnails/* ~/.cache/pip/* ~/.npm/_cacache 2>/dev/null; true', false]);
+  return l;
+}
+
+/**
+ * Docker: hanya yang benar-benar tidak terpakai.
+ *
+ * `image prune -f` TANPA -a hanya membuang image dangling. `-a` akan ikut
+ * menghapus image bertag yang sedang tidak ada containernya — termasuk image
+ * yang sengaja disimpan untuk rollback.
+ */
+function langkahDocker() {
+  if (!punya('docker')) return [];
+  return [
+    ['cache build docker dibuang', 'docker builder prune -f', false],
+    ['image docker dangling dibuang', 'docker image prune -f', false],
+    ['container mati dibuang', 'docker container prune -f', false],
+    ['network tak terpakai dibuang', 'docker network prune -f', false],
+  ];
+}
+
+/**
+ * Jalankan optimasi, laporkan kemajuan lewat `lapor`.
+ *
+ * RAM SENGAJA TIDAK DISENTUH — lihat penjelasan panjang di agent.py:
+ * drop_caches membuat angka turun tapi memperlambat server.
+ */
+function jalankanOptimasi(sertakanDocker, lapor) {
+  const diskAwal = diskTerpakai();
+  const mem = memInfo();
+  const isRoot = process.getuid && process.getuid() === 0;
+  const bisaSudo = sudoTanpaSandi();
+
+  const langkah = langkahAman().concat(sertakanDocker ? langkahDocker() : []);
+  const akanJalan = langkah.filter(([, , perluSudo]) => !(perluSudo && !bisaSudo));
+  const total = akanJalan.length;
+
+  const hasil = [];
+  const dilewati = [];
+  let nomor = 0;
+
+  for (const [nama, perintahAsli, perluSudo] of langkah) {
+    if (perluSudo && !bisaSudo) { dilewati.push(nama); continue; }
+    nomor++;
+    if (lapor) { try { lapor(nomor, total, nama); } catch { /* kabar tidak boleh menggagalkan */ } }
+    const perintah = (perluSudo && !isRoot) ? `sudo -n ${perintahAsli}` : perintahAsli;
+    try {
+      const out = execSync(perintah, { encoding: 'utf8', timeout: 120000, stdio: 'pipe' });
+      hasil.push({ nama, ok: true, pesan: (out || '').trim().slice(0, 300) || null });
+    } catch (err) {
+      hasil.push({ nama, ok: false, pesan: (err.message || '').slice(0, 300) });
+    }
+  }
+
+  const diskAkhir = diskTerpakai();
+  const hemat = (diskAwal != null && diskAkhir != null) ? Math.max(0, diskAwal - diskAkhir) : null;
+  const cacheKb = (mem.Cached || 0) + (mem.Buffers || 0) + (mem.SReclaimable || 0);
+
+  return {
+    hematBytes: hemat,
+    langkah: hasil,
+    dilewati,
+    butuhSudo: !bisaSudo,
+    dockerTersedia: punya('docker'),
+    memTotalMb: mem.MemTotal ? Math.round(mem.MemTotal / 1024) : null,
+    memTersediaMb: mem.MemAvailable ? Math.round(mem.MemAvailable / 1024) : null,
+    memCacheMb: cacheKb ? Math.round(cacheKb / 1024) : null,
+  };
+}
+
+let optimasiBerjalan = false;
+
+/**
+ * Optimasi dijalankan lewat setImmediate, bukan langsung di loop pesan.
+ *
+ * execSync memblokir event loop, jadi selama optimasi berjalan agent tidak
+ * bisa mengirim metrik maupun membalas ping — server akan menandainya DOWN.
+ * Node tidak punya thread seperti Python, jadi kemajuan dikirim di sela
+ * antar-langkah: tiap langkah melepas kendali sejenak supaya pesan benar-benar
+ * terkirim sebelum langkah berikutnya memblokir lagi.
+ */
+function handleOptimize(id, sertakanDocker) {
+  const kirim = (payload) => {
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+    } catch {
+      // koneksi putus; optimasi tetap diselesaikan
+    }
+  };
+
+  if (optimasiBerjalan) {
+    kirim({ type: 'optimize_result', id, ok: false, pesan: 'Optimasi lain masih berjalan di server ini.' });
+    return;
+  }
+  optimasiBerjalan = true;
+  kirim({ type: 'optimize_progress', id, nomor: 0, total: 0, nama: 'memulai…' });
+
+  setImmediate(() => {
+    try {
+      const hasil = jalankanOptimasi(sertakanDocker, (nomor, total, nama) => {
+        kirim({ type: 'optimize_progress', id, nomor, total, nama });
+      });
+      kirim({ ...hasil, type: 'optimize_result', id, ok: true });
+      console.log(`[agent] optimasi selesai, hemat ${hasil.hematBytes} byte`);
+    } catch (err) {
+      console.error('[agent] optimasi gagal:', err.message);
+      kirim({ type: 'optimize_result', id, ok: false, pesan: err.message });
+    } finally {
+      optimasiBerjalan = false;
+    }
+  });
 }
 
 const SERVICE_NAME = process.env.OOPS_SERVICE_NAME || 'oops-agent';

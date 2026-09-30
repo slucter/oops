@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.2.0'
+AGENT_VERSION = '1.3.0'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -381,6 +381,208 @@ def refresh_public_ip():
 COMMANDS = {'docker_ps': 'docker ps -a', 'port_listen': 'ss -tulnp'}
 
 
+# ===================== Optimasi =====================
+
+def _disk_bytes():
+    """Byte terpakai pada / — dipakai mengukur hasil optimasi, bukan klaim."""
+    try:
+        st = os.statvfs('/')
+        return (st.f_blocks - st.f_bfree) * st.f_frsize
+    except Exception:
+        return None
+
+
+def _mem_info():
+    """Baca /proc/meminfo seperlunya, dalam kB."""
+    hasil = {}
+    try:
+        with open('/proc/meminfo') as f:
+            for baris in f:
+                k, _, v = baris.partition(':')
+                if k in ('MemTotal', 'MemAvailable', 'Cached', 'Buffers', 'SReclaimable', 'MemFree'):
+                    hasil[k] = int(v.strip().split()[0])
+    except Exception:
+        pass
+    return hasil
+
+
+def _punya(cmd):
+    return shutil.which(cmd) is not None
+
+
+def _jalan(perintah, timeout=120):
+    """
+    Jalankan satu langkah optimasi. Tidak pernah melempar — satu langkah yang
+    gagal (mis. perintahnya tidak ada) tidak boleh menggagalkan sisanya.
+    """
+    try:
+        p = subprocess.run(perintah, shell=True, timeout=timeout,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return p.returncode == 0, (p.stdout + p.stderr).decode('utf-8', 'replace').strip()
+    except Exception as e:
+        return False, str(e)
+
+
+def _langkah_aman():
+    """
+    Langkah yang tidak menyentuh data aplikasi, tidak merestart apa pun, dan
+    tidak menghapus apa pun yang masih dipakai.
+
+    Tiap langkah: (nama, perintah, butuh_sudo). Yang butuh sudo dilewati
+    diam-diam kalau tidak ada sudo tanpa kata sandi — agent berjalan sebagai
+    user biasa, dan meminta kata sandi dari proses non-interaktif hanya akan
+    menggantung.
+    """
+    langkah = []
+
+    # Journal systemd sering jadi pemakan disk terbesar yang tidak disadari.
+    # Dipangkas ke 200M, bukan dihapus: riwayat terbaru tetap ada untuk
+    # menyelidiki insiden.
+    if _punya('journalctl'):
+        langkah.append(('journal systemd dipangkas ke 200M',
+                        'journalctl --vacuum-size=200M', True))
+
+    # Cache paket: aman dibuang, terunduh ulang saat dibutuhkan.
+    if _punya('apt-get'):
+        langkah.append(('cache apt dibersihkan', 'apt-get clean', True))
+    elif _punya('yum'):
+        langkah.append(('cache yum dibersihkan', 'yum clean all', True))
+    elif _punya('dnf'):
+        langkah.append(('cache dnf dibersihkan', 'dnf clean all', True))
+    elif _punya('apk'):
+        langkah.append(('cache apk dibersihkan', 'rm -rf /var/cache/apk/*', True))
+
+    # File sementara yang sudah lama. Batas 7 hari, bukan semua: proses yang
+    # sedang berjalan bisa saja memakai file /tmp yang baru dibuat.
+    langkah.append(('file /tmp lebih tua dari 7 hari dihapus',
+                    "find /tmp -mindepth 1 -atime +7 -delete 2>/dev/null; true", False))
+
+    # Log yang sudah dirotasi dan dikompresi — isinya riwayat lama.
+    langkah.append(('log rotasi lama (>30 hari) dihapus',
+                    "find /var/log -type f \\( -name '*.gz' -o -name '*.[0-9]' "
+                    "-o -name '*.old' \\) -mtime +30 -delete 2>/dev/null; true", True))
+
+    # Cache milik user yang menjalankan agent — tidak menyentuh milik user lain.
+    langkah.append(('cache thumbnail/pip/npm milik user dibersihkan',
+                    "rm -rf ~/.cache/thumbnails/* ~/.cache/pip/* ~/.npm/_cacache 2>/dev/null; true",
+                    False))
+
+    return langkah
+
+
+def _langkah_docker():
+    """
+    Docker: hanya yang benar-benar tidak terpakai.
+
+    `builder prune -f` membuang cache build, dan `image prune -f` (TANPA -a)
+    hanya membuang image dangling — image tanpa tag yang tertinggal dari build
+    ulang. `-a` akan ikut menghapus image bertag yang sedang tidak ada
+    containernya, termasuk image yang sengaja disimpan untuk rollback.
+    """
+    if not _punya('docker'):
+        return []
+    return [
+        ('cache build docker dibuang', 'docker builder prune -f', False),
+        ('image docker dangling dibuang', 'docker image prune -f', False),
+        ('container mati dibuang', 'docker container prune -f', False),
+        ('network tak terpakai dibuang', 'docker network prune -f', False),
+    ]
+
+
+def _sudo_tanpa_sandi():
+    """
+    Apakah sudo bisa dipakai tanpa kata sandi?
+
+    Diperiksa lebih dulu dengan `-n` supaya langkah yang butuh sudo dilewati
+    rapi, bukan menggantung menunggu kata sandi yang tidak akan pernah datang
+    dari proses non-interaktif.
+    """
+    if os.getuid() == 0:
+        return True
+    if not _punya('sudo'):
+        return False
+    try:
+        p = subprocess.run(['sudo', '-n', 'true'], timeout=8,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
+def jalankan_optimasi(sertakan_docker=False, lapor=None):
+    """
+    Bersihkan yang aman dibersihkan, lalu laporkan dampaknya yang terukur.
+
+    Disk diukur sebelum dan sesudah, jadi angka yang dilaporkan adalah hasil
+    nyata — bukan penjumlahan perkiraan tiap langkah.
+
+    `lapor(nomor, total, nama)` dipanggil sebelum tiap langkah kalau diberikan,
+    supaya dashboard bisa menampilkan kemajuan. Optimasi bisa memakan beberapa
+    menit (journal 3.5GB, docker cache 2GB), dan tanpa kabar apa pun selama itu
+    pengguna tidak bisa membedakan "sedang bekerja" dari "macet".
+
+    RAM SENGAJA TIDAK DISENTUH. Linux memakai RAM kosong sebagai cache disk
+    dengan sengaja; `drop_caches` membuat angka "used" turun tapi justru
+    memperlambat server karena semua data harus dibaca ulang dari disk. Yang
+    dilaporkan adalah MemAvailable — berapa yang benar-benar bisa dipakai
+    aplikasi baru, yang biasanya jauh lebih besar dari kesan angka "free".
+    """
+    disk_awal = _disk_bytes()
+    mem = _mem_info()
+
+    is_root = os.getuid() == 0
+    bisa_sudo = _sudo_tanpa_sandi()
+
+    langkah = _langkah_aman()
+    if sertakan_docker:
+        langkah += _langkah_docker()
+
+    hasil = []
+    dilewati = []
+
+    # Hanya langkah yang benar-benar akan dijalankan yang dihitung, supaya
+    # "3 dari 8" tidak berhenti di 6 karena sisanya dilewati.
+    akan_jalan = [l for l in langkah if not (l[2] and not bisa_sudo)]
+    total = len(akan_jalan)
+    nomor = 0
+
+    for nama, perintah, butuh_sudo in langkah:
+        if butuh_sudo and not bisa_sudo:
+            dilewati.append(nama)
+            continue
+        nomor += 1
+        if lapor:
+            try:
+                lapor(nomor, total, nama)
+            except Exception:
+                pass  # kabar kemajuan tidak boleh menggagalkan optimasi
+        if butuh_sudo and not is_root:
+            perintah = 'sudo -n ' + perintah
+        ok, keluaran = _jalan(perintah)
+        hasil.append({'nama': nama, 'ok': ok,
+                      'pesan': keluaran[:300] if keluaran else None})
+
+    disk_akhir = _disk_bytes()
+    hemat = None
+    if disk_awal is not None and disk_akhir is not None:
+        hemat = max(0, disk_awal - disk_akhir)
+
+    total_kb = mem.get('MemTotal', 0)
+    tersedia_kb = mem.get('MemAvailable', 0)
+    cache_kb = mem.get('Cached', 0) + mem.get('Buffers', 0) + mem.get('SReclaimable', 0)
+
+    return {
+        'hematBytes': hemat,
+        'langkah': hasil,
+        'dilewati': dilewati,
+        'butuhSudo': not bisa_sudo,
+        'dockerTersedia': _punya('docker'),
+        'memTotalMb': round(total_kb / 1024) if total_kb else None,
+        'memTersediaMb': round(tersedia_kb / 1024) if tersedia_kb else None,
+        'memCacheMb': round(cache_kb / 1024) if cache_kb else None,
+    }
+
+
 # ===================== Update mandiri =====================
 
 UPDATE_FILES = ['agent.py']
@@ -556,6 +758,53 @@ def handle_uninstall_command(ws, req_id):
     self_uninstall('diperintahkan dari dashboard')
 
 
+_optimasi_berjalan = threading.Lock()
+
+
+def handle_optimize(ws, req_id, sertakan_docker):
+    """
+    Jalankan optimasi di thread terpisah, laporkan kemajuan lewat WebSocket.
+
+    Dijalankan di thread karena optimasi bisa memakan beberapa menit
+    (journal 3.5GB, docker cache 2GB). Kalau dikerjakan di loop pesan, agent
+    berhenti mengirim metrik selama itu dan server akan menandainya DOWN —
+    optimasi yang berhasil malah terlihat seperti server mati.
+
+    Lock memastikan satu server tidak menjalankan dua optimasi sekaligus;
+    dua `docker prune` bersamaan bisa saling mengganggu.
+    """
+    def kirim(payload):
+        try:
+            ws.send_text(json.dumps(payload))
+        except Exception:
+            pass  # koneksi putus di tengah; optimasi tetap diselesaikan
+
+    def kerja():
+        if not _optimasi_berjalan.acquire(blocking=False):
+            kirim({'type': 'optimize_result', 'id': req_id, 'ok': False,
+                   'pesan': 'Optimasi lain masih berjalan di server ini.'})
+            return
+        try:
+            kirim({'type': 'optimize_progress', 'id': req_id,
+                   'nomor': 0, 'total': 0, 'nama': 'memulai…'})
+
+            def lapor(nomor, total, nama):
+                kirim({'type': 'optimize_progress', 'id': req_id,
+                       'nomor': nomor, 'total': total, 'nama': nama})
+
+            hasil = jalankan_optimasi(sertakan_docker=sertakan_docker, lapor=lapor)
+            hasil.update({'type': 'optimize_result', 'id': req_id, 'ok': True})
+            kirim(hasil)
+            print('[agent] optimasi selesai, hemat %s byte' % hasil.get('hematBytes'))
+        except Exception as e:
+            print('[agent] optimasi gagal: %s' % e, file=sys.stderr)
+            kirim({'type': 'optimize_result', 'id': req_id, 'ok': False, 'pesan': str(e)})
+        finally:
+            _optimasi_berjalan.release()
+
+    threading.Thread(target=kerja, daemon=True).start()
+
+
 def build_ws_url():
     u = urlparse(SERVER_URL)
     scheme = 'wss' if u.scheme == 'https' else 'ws'
@@ -645,6 +894,8 @@ def session():
                 handle_self_update(ws, msg['id'])
             elif msg.get('type') == 'uninstall_agent' and msg.get('id'):
                 handle_uninstall_command(ws, msg['id'])
+            elif msg.get('type') == 'optimize' and msg.get('id'):
+                handle_optimize(ws, msg['id'], bool(msg.get('docker')))
     finally:
         stop.set()
         ws.close()
