@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.5.1'
+AGENT_VERSION = '1.6.0'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -271,7 +271,7 @@ class WebSocket:
 DELIM = '---oops-delim---'
 RESOURCE_COMMAND = '; '.join([
     'free -m', 'echo %s' % DELIM,
-    'df -h /', 'echo %s' % DELIM,
+    'df -k /', 'echo %s' % DELIM,
     'cat /proc/loadavg', 'echo %s' % DELIM,
     'uptime -p', 'echo %s' % DELIM,
     'nproc',
@@ -295,6 +295,14 @@ def _int_or_none(v):
 def _float_or_none(v):
     try:
         return float(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _kb_ke_gb(value):
+    """Kilobyte -> GB dengan dua desimal. Dipakai untuk keluaran `df -k`."""
+    try:
+        return round(int(value) / 1048576, 2)
     except (TypeError, ValueError):
         return None
 
@@ -333,7 +341,14 @@ def parse_resource_output(stdout):
     if df_lines:
         cols = df_lines[-1].split()
         if len(cols) >= 3:
-            disk_total, disk_used = _size_to_gb(cols[1]), _size_to_gb(cols[2])
+            # `df -k` memberi angka dalam KILOBYTE, bukan "23G" yang sudah
+            # dibulatkan. Presisi itu penting: dengan satuan bulat, 48->49
+            # terbaca sebagai lompatan 1 GB penuh dan prediksi disk penuh
+            # jadi berosilasi karena derau pembulatan — bukan pertumbuhan
+            # nyata. Format "23G" tetap diterima supaya agent lama yang
+            # masih mengirim `df -h` tidak rusak.
+            disk_total = _kb_ke_gb(cols[1]) if cols[1].isdigit() else _size_to_gb(cols[1])
+            disk_used = _kb_ke_gb(cols[2]) if cols[2].isdigit() else _size_to_gb(cols[2])
 
     load = load_out.split()
     return {

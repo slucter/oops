@@ -3,7 +3,7 @@ const DELIM = '---oops-delim---';
 const RESOURCE_COMMAND = [
   'free -m',
   `echo ${DELIM}`,
-  'df -h /',
+  'df -k /',
   `echo ${DELIM}`,
   'cat /proc/loadavg',
   `echo ${DELIM}`,
@@ -50,9 +50,22 @@ function parseDf(text) {
   if (!line) return { diskTotalGb: null, diskUsedGb: null };
   const cols = line.trim().split(/\s+/);
   return {
-    diskTotalGb: parseSizeToGb(cols[1]),
-    diskUsedGb: parseSizeToGb(cols[2]),
+    // `df -k` memberi KILOBYTE, bukan "23G" yang sudah dibulatkan.
+    // Presisi itu penting: dengan satuan bulat, 48->49 terbaca sebagai
+    // lompatan 1 GB penuh dan prediksi disk penuh berosilasi karena derau
+    // pembulatan. Format "23G" tetap diterima untuk agent lama.
+    diskTotalGb: kbKeGb(cols[1]),
+    diskUsedGb: kbKeGb(cols[2]),
   };
+}
+
+/** Kilobyte -> GB dua desimal; jatuh ke parseSizeToGb untuk format "23G". */
+function kbKeGb(value) {
+  if (/^\d+$/.test(String(value || ''))) {
+    const kb = parseInt(value, 10);
+    return Number.isFinite(kb) ? Math.round(kb / 1048576 * 100) / 100 : null;
+  }
+  return parseSizeToGb(value);
 }
 
 function parseSizeToGb(value) {

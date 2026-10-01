@@ -9,10 +9,10 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "cek-versi": "node agent/cek-versi.js",
-    "test": "node agent/cek-versi.js && node uji/update-agent.js && node uji/uninstall.js && node uji/share.js && node uji/share-auth.js && node uji/optimize.js && node uji/peta.js && node uji/view-js.js && node uji/lapisan-css.js",
+    "test": "node agent/cek-versi.js && node uji/update-agent.js && node uji/uninstall.js && node uji/share.js && node uji/share-auth.js && node uji/optimize.js && node uji/peta.js && node uji/alert-flap.js && node uji/view-js.js && node uji/lapisan-css.js",
     "cek-versi-naik": "node agent/cek-versi-naik.js",
     "pasang-hook": "git config core.hooksPath .githooks",
-    "uji": "node uji/update-agent.js && node uji/uninstall.js && node uji/share.js && node uji/share-auth.js && node uji/optimize.js && node uji/peta.js && node uji/view-js.js && node uji/lapisan-css.js"
+    "uji": "node uji/update-agent.js && node uji/uninstall.js && node uji/share.js && node uji/share-auth.js && node uji/optimize.js && node uji/peta.js && node uji/alert-flap.js && node uji/view-js.js && node uji/lapisan-css.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

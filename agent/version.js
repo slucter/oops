@@ -15,6 +15,6 @@
  * (lihat isNewerVersion di src/services/agentVersion.js), bukan sebagai
  * string — "1.10.0" lebih baru dari "1.9.0" meski secara string lebih kecil.
  */
-const AGENT_VERSION = '1.5.1';
+const AGENT_VERSION = '1.6.0';
 
 module.exports = { AGENT_VERSION };

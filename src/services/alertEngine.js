@@ -88,9 +88,23 @@ function raise(client, { kind, severity, message, valueText }) {
 }
 
 /** Tutup alert yang aktif untuk (client, kind) dan kirim pesan pemulihan. */
+// Alert yang baru menyala tidak boleh langsung dinyatakan pulih.
+//
+// Pengaman terakhir terhadap alert yang berkedip: walau histeresis sudah
+// dipasang per-jenis, nilai yang berosilasi lebar tetap bisa melompati
+// kedua ambang. Satu insiden yang hidup cuma 30 detik lalu "pulih" bukan
+// informasi — itu derau, dan grup Telegram yang penuh derau akan diabaikan
+// orang justru saat ada yang benar-benar penting.
+const MIN_DETIK_SEBELUM_PULIH = 300; // 5 menit
+
 function clear(client, kind) {
   const existing = findActive.get(client.id, kind);
   if (!existing) return;
+
+  const umurDetik = (Date.now() - Date.parse(existing.started_at + 'Z')) / 1000;
+  if (Number.isFinite(umurDetik) && umurDetik < MIN_DETIK_SEBELUM_PULIH) {
+    return; // biarkan menyala dulu; akan dibereskan di siklus berikutnya
+  }
 
   resolveAlert.run(existing.id);
 
@@ -279,13 +293,38 @@ function evaluateDiskForecast(client, currentPct) {
   const newest = samples[0];
   const oldest = samples[samples.length - 1];
   const hours = (Date.parse(newest.received_at + 'Z') - Date.parse(oldest.received_at + 'Z')) / 3600000;
-  if (!Number.isFinite(hours) || hours < 0.5) return; // rentang terlalu pendek
+
+  // Rentang minimal 2 jam, bukan 30 menit.
+  //
+  // `disk_used_gb` disimpan sebagai bilangan BULAT, jadi 48->49 terbaca
+  // sebagai lompatan 1 GB penuh padahal nyatanya mungkin 0.1 GB. Pada
+  // rentang 30 menit, satu lompatan pembulatan saja sudah jadi "+2 GB/jam"
+  // — cukup untuk memicu alert pada disk yang sebenarnya diam. Rentang
+  // yang lebih panjang membuat derau pembulatan itu tidak lagi dominan.
+  if (!Number.isFinite(hours) || hours < 2) return;
 
   const growthPerHour = (newest.disk_used_gb - oldest.disk_used_gb) / hours;
-  if (growthPerHour <= 0) { clear(client, 'disk_forecast'); return; }
+
+  // Pertumbuhan di bawah 0.25 GB/jam diabaikan: pada data bilangan bulat,
+  // angka sekecil itu tidak bisa dibedakan dari derau pembulatan.
+  const MIN_GROWTH_GB_PER_HOUR = 0.25;
+  if (growthPerHour < MIN_GROWTH_GB_PER_HOUR) { clear(client, 'disk_forecast'); return; }
 
   const remainingGb = newest.disk_total_gb - newest.disk_used_gb;
   const hoursToFull = remainingGb / growthPerHour;
+
+  // HISTERESIS: ambang naik dan ambang turun sengaja BERBEDA.
+  //
+  // Sebelumnya keduanya sama (horizonHours), sehingga prediksi yang
+  // berosilasi di sekitar ambang — 9.9 jam, lalu 10.1 jam, lalu 9.9 lagi —
+  // menghasilkan WARNING/PULIH bergantian tiap beberapa menit. Di grup
+  // Telegram itu terlihat sebagai spam, dan alert yang jadi derau akan
+  // diabaikan orang justru saat benar-benar penting.
+  //
+  // Sekarang: alert menyala di <= horizon, tapi baru dinyatakan pulih
+  // setelah prediksinya membaik jauh (1.5x horizon).
+  const ambangPulih = horizonHours * 1.5;
+  const sedangAktif = !!findActive.get(client.id, 'disk_forecast');
 
   if (hoursToFull <= horizonHours) {
     raise(client, {
@@ -294,7 +333,9 @@ function evaluateDiskForecast(client, currentPct) {
       message: `Disk diperkirakan penuh dalam ~${formatHours(hoursToFull)}`,
       valueText: `+${growthPerHour.toFixed(2)} GB/jam · sisa ${remainingGb.toFixed(1)} GB`,
     });
-  } else {
+  } else if (!sedangAktif || hoursToFull > ambangPulih) {
+    // Di antara horizon dan ambang pulih, alert yang sudah menyala
+    // DIBIARKAN menyala — itulah histeresisnya.
     clear(client, 'disk_forecast');
   }
 }
