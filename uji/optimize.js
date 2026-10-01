@@ -289,6 +289,49 @@ function agentTiruan(token, perilaku) {
   cek('ditandai gagal, bukan menggantung', r.json.target[0].status === 'gagal');
   cek('pesannya menjelaskan sebabnya', /terputus/i.test(r.json.target[0].pesan || ''));
 
+  console.log('\n=== 10. Reconnect agent tidak membatalkan pekerjaan ===');
+  // Regresi dari akar masalah sebenarnya: activeConnections.set() menimpa
+  // koneksi lama tanpa menutupnya, dan `close` koneksi lama yang datang
+  // BELAKANGAN menghapus entri koneksi BARU. Server lalu mengira client
+  // offline padahal tersambung — perintah dibatalkan dengan "agent
+  // terputus" dan lock di sisi agent tersangkut.
+  const c8 = clientStore.createClient({ name: 'Reconnect', groupId: null });
+
+  const wsA = new WebSocket(`ws://127.0.0.1:31988/agent?token=${c8.token}`);
+  await new Promise((res) => wsA.on('open', res));
+  await sleep(200);
+  cek('koneksi pertama terdaftar', wsServer.isClientConnected(c8.id));
+
+  // Koneksi kedua dari agent yang sama (meniru reconnect).
+  const wsB = new WebSocket(`ws://127.0.0.1:31988/agent?token=${c8.token}`);
+  await new Promise((res) => wsB.on('open', res));
+  // Beri waktu `close` koneksi lama tiba — di sinilah bug-nya dulu terjadi.
+  await sleep(800);
+
+  cek('client TETAP terdaftar setelah reconnect', wsServer.isClientConnected(c8.id));
+
+  // Pekerjaan lewat koneksi baru harus berjalan normal.
+  wsB.on('message', (raw) => {
+    const mm = JSON.parse(raw.toString());
+    if (mm.type !== 'optimize') return;
+    wsB.send(JSON.stringify({
+      type: 'optimize_result', id: mm.id, ok: true, hematBytes: 777,
+      langkah: [{ nama: 'uji', ok: true, pesan: null }], dilewati: [],
+    }));
+  });
+
+  r = await kirim('POST', '/optimize', { client_ids: [c8.id] });
+  const job8 = r.json.jobId;
+  r = await kirim('GET', `/optimize/${job8}`);
+  for (let i = 0; i < 40 && !(r.json && r.json.selesai); i++) {
+    await sleep(150);
+    r = await kirim('GET', `/optimize/${job8}`);
+  }
+  cek('optimasi lewat koneksi baru BERHASIL', r.json.target[0].status === 'selesai');
+  cek('bukan "agent terputus"', !/terputus/i.test(r.json.target[0].pesan || ''));
+
+  try { wsA.close(); wsB.close(); } catch {}
+
   console.log(gagal === 0 ? '\n>>> SEMUA LULUS' : `\n>>> ${gagal} GAGAL`);
   try { ws1.close(); ws2.close(); wsN.close(); } catch {}
   server.close(); db.close();

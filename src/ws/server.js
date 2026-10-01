@@ -74,6 +74,27 @@ function attach(httpServer) {
   });
 
   wss.on('connection', (ws, client) => {
+    // Koneksi lama HARUS ditutup, bukan sekadar ditimpa.
+    //
+    // Agent yang reconnect (jaringan goyah, agent restart) membuka koneksi
+    // baru sementara yang lama kadang masih hidup di sisi server. Kalau
+    // hanya ditimpa, koneksi lama itu tetap terbuka dan `close`-nya datang
+    // BELAKANGAN — lalu menghapus entri koneksi BARU dari activeConnections.
+    //
+    // Akibatnya server mengira client offline padahal tersambung: perintah
+    // optimasi/pemetaan dibatalkan dengan "agent terputus", dan lock di
+    // sisi agent tersangkut karena pekerjaannya tidak pernah dilaporkan
+    // selesai. Itu akar dari rentetan masalah yang terlihat di dashboard.
+    const lama = activeConnections.get(client.id);
+    if (lama && lama !== ws) {
+      lama.gantiDiam = true; // tandai: jangan sentuh entri saat close-nya datang
+      try {
+        lama.terminate();
+      } catch {
+        // sudah mati; tidak ada yang perlu dilakukan
+      }
+    }
+
     activeConnections.set(client.id, ws);
     console.log(`[ws] client "${client.name}" (id=${client.id}) terkoneksi`);
 
@@ -103,8 +124,25 @@ function attach(httpServer) {
       // sinyal jelas (bisa reconnect cepat). markStaleClientsDown() yang
       // memutuskan DOWN lewat timeout last_seen_at.
       clearInterval(pingTimer);
-      activeConnections.delete(client.id);
-      lastLatency.delete(client.id);
+
+      // Hapus HANYA kalau entri itu memang milik koneksi ini. Tanpa
+      // pemeriksaan ini, `close` dari koneksi lama menghapus koneksi baru
+      // yang baru saja menggantikannya, dan server mengira client offline
+      // padahal tersambung.
+      const terdaftar = activeConnections.get(client.id);
+      const masihMilikKita = terdaftar === ws;
+      if (masihMilikKita) {
+        activeConnections.delete(client.id);
+        lastLatency.delete(client.id);
+      }
+
+      // Koneksi ini sudah digantikan yang baru: jangan membatalkan
+      // pekerjaan yang tertunda, karena agent masih hidup dan masih
+      // mengerjakannya lewat koneksi penggantinya.
+      if (ws.gantiDiam || !masihMilikKita) {
+        console.log(`[ws] koneksi lama "${client.name}" (id=${client.id}) ditutup, digantikan yang baru`);
+        return;
+      }
 
       // Agent yang sedang update akan memutus koneksi saat me-restart
       // dirinya. Itu justru tanda update berhasil — bukan kegagalan. Kalau
