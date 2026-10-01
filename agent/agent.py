@@ -32,7 +32,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse, urlencode
 
-AGENT_VERSION = '1.5.0'
+AGENT_VERSION = '1.5.1'
 
 SERVER_URL = os.environ.get('OOPS_SERVER_URL')
 TOKEN = os.environ.get('OOPS_TOKEN')
@@ -1055,6 +1055,13 @@ def _peta_disk(min_persen=0.5, maks_file=25, min_file_mb=50, lapor=None,
 
 
 _peta_berjalan = threading.Lock()
+# Kapan pemetaan terakhir dimulai. Dipakai melepas lock yang tersangkut:
+# kalau proses pemegangnya mati tanpa sempat release (mis. koneksi putus
+# lalu thread-nya ikut hilang), lock bisa terkunci selamanya dan SEMUA
+# percobaan berikutnya ditolak "Pemetaan lain masih berjalan" padahal tidak
+# ada apa pun yang berjalan.
+_peta_mulai_pada = [0.0]
+PETA_LOCK_MAKS_DETIK = 1900  # sedikit di atas timeout du (1800)
 
 
 def handle_peta(ws, req_id):
@@ -1073,9 +1080,22 @@ def handle_peta(ws, req_id):
 
     def kerja():
         if not _peta_berjalan.acquire(blocking=False):
-            kirim({'type': 'peta_result', 'id': req_id, 'ok': False,
-                   'pesan': 'Pemetaan lain masih berjalan di server ini.'})
-            return
+            # Lock dipegang. Tapi kalau sudah jauh melewati batas waktu
+            # pemindaian, pemegangnya pasti sudah mati — rebut paksa.
+            umur = time.time() - _peta_mulai_pada[0]
+            if umur < PETA_LOCK_MAKS_DETIK:
+                sisa = int(PETA_LOCK_MAKS_DETIK - umur)
+                kirim({'type': 'peta_result', 'id': req_id, 'ok': False,
+                       'pesan': 'Pemindaian lain masih berjalan di server ini '
+                                '(sudah %d detik). Tunggu sampai selesai, atau '
+                                'coba lagi dalam %d detik.' % (int(umur), sisa)})
+                return
+            print('[agent] lock pemetaan tersangkut %d detik, direbut paksa' % int(umur),
+                  file=sys.stderr)
+            # Tidak perlu release: lock yang pemegangnya hilang tetap
+            # "terkunci", jadi kita lanjut saja tanpa memegangnya ulang.
+
+        _peta_mulai_pada[0] = time.time()
         try:
             kirim({'type': 'peta_progress', 'id': req_id, 'tahap': 'memulai pemindaian…'})
 
@@ -1092,12 +1112,24 @@ def handle_peta(ws, req_id):
             print('[agent] pemetaan gagal: %s' % e, file=sys.stderr)
             kirim({'type': 'peta_result', 'id': req_id, 'ok': False, 'pesan': str(e)})
         finally:
-            _peta_berjalan.release()
+            # Lock mungkin tidak benar-benar kita pegang (jalur "rebut
+            # paksa" di atas), dan release() pada lock yang tidak dipegang
+            # melempar RuntimeError — yang akan menutupi error aslinya.
+            try:
+                _peta_berjalan.release()
+            except RuntimeError:
+                pass
+            _peta_mulai_pada[0] = 0.0
 
     threading.Thread(target=kerja, daemon=True).start()
 
 
 _optimasi_berjalan = threading.Lock()
+# Sama seperti lock pemetaan: dilepas paksa kalau tersangkut jauh melewati
+# batas waktu, supaya satu optimasi yang terputus tidak memblokir semua
+# percobaan berikutnya selamanya.
+_optimasi_mulai_pada = [0.0]
+OPT_LOCK_MAKS_DETIK = 1300  # sedikit di atas timeout langkah docker (1200)
 
 
 def handle_optimize(ws, req_id, sertakan_docker):
@@ -1120,9 +1152,16 @@ def handle_optimize(ws, req_id, sertakan_docker):
 
     def kerja():
         if not _optimasi_berjalan.acquire(blocking=False):
-            kirim({'type': 'optimize_result', 'id': req_id, 'ok': False,
-                   'pesan': 'Optimasi lain masih berjalan di server ini.'})
-            return
+            umur = time.time() - _optimasi_mulai_pada[0]
+            if umur < OPT_LOCK_MAKS_DETIK:
+                kirim({'type': 'optimize_result', 'id': req_id, 'ok': False,
+                       'pesan': 'Optimasi lain masih berjalan di server ini '
+                                '(sudah %d detik). Tunggu sampai selesai.' % int(umur)})
+                return
+            print('[agent] lock optimasi tersangkut %d detik, direbut paksa' % int(umur),
+                  file=sys.stderr)
+
+        _optimasi_mulai_pada[0] = time.time()
         try:
             kirim({'type': 'optimize_progress', 'id': req_id,
                    'nomor': 0, 'total': 0, 'nama': 'memulai…'})
@@ -1139,7 +1178,11 @@ def handle_optimize(ws, req_id, sertakan_docker):
             print('[agent] optimasi gagal: %s' % e, file=sys.stderr)
             kirim({'type': 'optimize_result', 'id': req_id, 'ok': False, 'pesan': str(e)})
         finally:
-            _optimasi_berjalan.release()
+            try:
+                _optimasi_berjalan.release()
+            except RuntimeError:
+                pass
+            _optimasi_mulai_pada[0] = 0.0
 
     threading.Thread(target=kerja, daemon=True).start()
 

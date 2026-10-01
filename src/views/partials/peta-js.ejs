@@ -143,6 +143,7 @@
               return;
             }
             clearInterval(timer);
+            window.oopsPetaBerjalan = false;
             btn.disabled = false;
             btn.textContent = '▤ Peta Disk';
             if (data.status === 'gagal') {
@@ -155,6 +156,7 @@
           .catch(function (err) {
             if (err.message === 'sesi') {
               clearInterval(timer);
+              window.oopsPetaBerjalan = false;
               btn.disabled = false;
               btn.textContent = '▤ Peta Disk';
               isi.innerHTML = '<div class="error" style="margin:0;">Sesi login berakhir. '
@@ -165,6 +167,7 @@
             gagalBerturut++;
             if (err.message === 'habis' || gagalBerturut >= 10) {
               clearInterval(timer);
+              window.oopsPetaBerjalan = false;
               btn.disabled = false;
               btn.textContent = '▤ Peta Disk';
               isi.innerHTML = '<div class="error" style="margin:0;">'
@@ -178,6 +181,9 @@
     }
 
     btn.addEventListener('click', function () {
+      // Penanda global: dibaca tombol Optimize supaya tidak memuat ulang
+      // halaman di tengah pemindaian.
+      window.oopsPetaBerjalan = true;
       btn.disabled = true;
       btn.textContent = 'Memindai…';
       panel.hidden = false;
@@ -194,6 +200,7 @@
           pantau(data.jobId);
         })
         .catch(function (err) {
+          window.oopsPetaBerjalan = false;
           btn.disabled = false;
           btn.textContent = '▤ Peta Disk';
           isi.innerHTML = '<div class="error" style="margin:0;">' + esc(err.message) + '</div>';

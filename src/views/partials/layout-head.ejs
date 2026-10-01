@@ -78,7 +78,13 @@
         linear-gradient(to top, rgba(0,0,0,.6) 0%, transparent 70%);
     }
 
-    header, main, .auth-wrap { position: relative; z-index: 1; }
+    /* Header HARUS di atas main, bukan setara.
+       Keduanya sempat sama-sama z-index 1, dan saat setara yang menang
+       adalah elemen yang muncul belakangan di HTML — yaitu main. Akibatnya
+       dropdown navbar (z-index 60) tetap tertembus tombol di dalam main,
+       karena z-index anak tidak bisa melampaui lapisan induknya. */
+    header { position: relative; z-index: 50; }
+    main, .auth-wrap { position: relative; z-index: 1; }
 
     /* ================= NAVBAR =================
        Bentuk angular: sudut kiri-atas & kanan-bawah terpotong,

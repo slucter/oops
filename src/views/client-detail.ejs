@@ -557,7 +557,13 @@
         + 'Data aplikasi tidak disentuh dan tidak ada service yang direstart.';
       if (!confirm(pesan)) return;
       window.oopsOptimize([b.dataset.id], false, b, function () {
-        setTimeout(function () { location.reload(); }, 6000);
+        // Jangan muat ulang kalau pemindaian disk sedang berjalan: reload
+        // memutus pemantauannya, dan hasilnya hilang dari layar meski
+        // agent tetap menyelesaikannya.
+        setTimeout(function () {
+          if (window.oopsPetaBerjalan) return;
+          location.reload();
+        }, 6000);
       });
     });
   })();
